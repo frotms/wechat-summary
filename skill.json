@@ -1,0 +1,165 @@
+{
+  "name": "wechat-export",
+  "version": "1.8.0",
+  "category": "other/wechat",
+  "source": "自建",
+  "status": "draft",
+  "author": "chenxi liu",
+  "license": "MIT",
+  "createdAt": "2026-11-16",
+  "updatedAt": "2026-11-18",
+  "changelog": [
+    {
+      "version": "1.8.0",
+      "date": "2026-11-18",
+      "author": "chenxi liu",
+      "changes": [
+        "新增撤回记录：wechat-revoke-map.py 读取 general.db 的 revokebatchmessage / revokemessage",
+        "批量撤回按 msg_local_id+msg_create_time 匹配原消息；单条按 svr_id 匹配 server_id；匹配不到进 orphans",
+        "消息新增 revoked / revoke 字段；每个会话生成 revokes.json；HTML 徽标、Markdown「（已撤回）」",
+        "4.1/4.2 wrapper 自动生成撤回映射；新增 --no-revoke-map；manifest/batch totals 增加 revoked 统计",
+        "实测：2026-11-17 某群 2 条批量撤回 2/2 匹配；970 条普通单条撤回只有提示，无法恢复原文",
+        "测试增至 47 项 Node + 25 项 Python（新增批量/单条/孤立撤回用例）"
+      ]
+    },
+    {
+      "version": "1.7.0",
+      "date": "2026-11-18",
+      "author": "chenxi liu",
+      "changes": [
+        "新增完整性校验 wechat-audit.py：独立查库对账「数据库行数 = 原始 JSON = 导出 + 按类型跳过」",
+        "4.2 导出后自动校验；4.1 指定 --output 时自动校验；新增 audit 子命令与 --no-audit",
+        "校验重复 id、时间窗外记录、coverage.mayHaveMore、JSONL 引用的媒体是否存在",
+        "报告写 <输出>/audit.json；不完整时退出码 5，产物保留",
+        "实测：557 条 = 557 条；--types text 时 441 + 跳过 116 = 557；人为删行可检出",
+        "测试增至 47 项 Node + 23 项 Python（新增 4 项完整性用例）"
+      ]
+    },
+    {
+      "version": "1.6.0",
+      "date": "2026-11-18",
+      "author": "chenxi liu",
+      "changes": [
+        "只读硬约束：明确不写入、不转发、不新增/删除/编辑/撤回聊天内容",
+        "weflow-cli 命令白名单：runWeFlow 在 spawn 前只允许 check/sessions/contacts/media/export json|md，其余抛 WEFLOW_READ_ONLY_VIOLATION",
+        "输出路径保护：Node 侧拒绝微信目录内的 --output/baseDir；Python 侧 lib/safety.py 拒绝账号目录内的 work/sandbox/home、表情/语音/媒体输出",
+        "doctor 输出 readOnly 审计字段（允许命令、禁止操作、写入位置）",
+        "文档：SKILL/README/DESIGN/BACKLOG 增加只读边界与强制措施",
+        "测试增至 47 项 Node + 19 项 Python（新增命令白名单与路径保护用例）"
+      ]
+    },
+    {
+      "version": "1.5.0",
+      "date": "2026-11-17",
+      "author": "chenxi liu",
+      "changes": [
+        "新增表情支持：内置表情码（[玫瑰] 等）在 HTML/Markdown 渲染为 emoji，JSONL 保留原文",
+        "新增自定义表情包（local_type 47）导出：lib/sticker.py 解密 AES-128-CBC + wxgf/H.265 转 PNG/GIF，落盘 media/stickers/",
+        "新增表情种子探测 wechat-sticker-seed.py：配置 emoticonSeed 或微信进程内存扫描（按样本解密校验）",
+        "新增 wechat-sticker-map.py：4.1/4.2 通用表情媒体映射；4.1/4.2 wrapper 自动并入 --media-map",
+        "新增 --sticker-seed / --no-sticker-map 选项；--types 默认加入 emoji",
+        "修复 4.2 sandbox 下 weflow-cli 探测 Python 超时导致导出偶发失败：sandbox 建立时写入 python-cmd.json",
+        "测试增至 42 项 Node + 15 项 Python（新增表情解密与渲染用例）",
+        "文档更新：表情链路（README/SKILL/DESIGN 6.4.2）、前置条件、输出布局、BACKLOG 同步"
+      ]
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-11-17",
+      "author": "chenxi liu",
+      "changes": [
+        "Level 1 vendor：将 MIT wechat-exporter 的 keys/decrypt/parser/export/media/proc 内置到 scripts/vendor/wechat42/，4.2 运行时默认不再依赖外部 --tool-dir",
+        "新增 --all-official：批量导出公众号（gh_）会话；--types 默认已含 link",
+        "新增 check-updates：对比上游 GitHub HEAD，只报告不自动更新；doctor/status 识别内置 vendor",
+        "新增 V2 加密视频解码：lib/v2_decode.py + v2-decode.py，4.2 media map 自动尝试，失败原样落盘",
+        "新增 Python 测试（V2 合成样本、SILK 合成）与 npm run test:py、GitHub Actions 工作流",
+        "公众号识别收紧为 gh_*；@openim 企业号/客服号不再算公众号，--all-official 无目标时给出明确提示",
+        "修复 4.2 --dry-run 仍生成媒体映射的问题；导出后/clean 时清理 media-map 临时文件",
+        "文档更新：Level 1 vendor、V2、--all-official、check-updates、测试计数；BACKLOG 同步"
+      ]
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-11-17",
+      "author": "chenxi liu",
+      "changes": [
+        "新增 4.1 自动语音入口 wechat41-export.mjs（生成 voice map 后调用标准导出）",
+        "新增 doctor 命令与 compat.json（配置/沙箱/venv/weflow 读库/sessions + 版本兼容矩阵）",
+        "wrapper 修复：--base-dir 帮助、setup 复用现有配置、search 自动重建 work、--output= 识别",
+        "silk-python/pysilk 写入前置条件；4.1/4.2 语音说明更新",
+        "测试增至 33 项（新增链接 fallback）"
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-11-17",
+      "author": "chenxi liu",
+      "changes": [
+        "新增 4.2 语音音频导出：media_*.db VoiceInfo → SILK v3 → WAV（silk-python/pysilk）",
+        "新增 4.1/加密库语音映射脚本 wechat41-voice-map.py（weflow-cli 语音入口 + pysilk）",
+        "bundle 新增 media/voice/、messages.jsonl media.voice、HTML <audio>、Markdown 语音链接",
+        "默认 --types 增加 voice；stats/manifest/README 增加语音 found/missing",
+        "wechat42-media-map.py 支持语音准备与映射；不依赖需要 MSVC 的 pilk",
+        "修复 wechat42-export.mjs 在 --refresh + --json 时 sandbox 构建日志污染 stdout 的问题",
+        "e2e/parse 测试覆盖 voice；当前 33 项通过",
+        "4.2 实测：2026-11-13 SEx 群 4 条语音全部导出；4.1 语音音频仍在 BACKLOG"
+      ]
+    },
+    {
+      "version": "1.1.3",
+      "date": "2026-11-17",
+      "author": "chenxi liu",
+      "changes": [
+        "新增 BACKLOG.md：记录收藏（REQ-014）等待办，明确当前范围与暂不包含项",
+        "README/SKILL 增加“当前范围”说明：收藏/朋友圈/文章正文/语音转写/Level 2/doctor 均为后续项",
+        "当前需求收尾：文字/图片/文件/视频 + 时间/群/个人 + 4.1/4.2 后端已验证"
+      ]
+    },
+    {
+      "version": "1.1.2",
+      "date": "2026-11-17",
+      "author": "chenxi liu",
+      "changes": [
+        "文档措辞：将“4.3/4.4 更新参考”改为“后续微信版本升级参考”，避免被理解为只针对 4.3/4.4",
+        "明确该参考库矩阵适用于以后任何微信版本升级（4.x、5.x 或更高）"
+      ]
+    },
+    {
+      "version": "1.1.1",
+      "date": "2026-11-17",
+      "author": "chenxi liu",
+      "changes": [
+        "文档：新增后续微信版本升级参考库矩阵与排查手册（SKILL.md / DESIGN.md / README.md）",
+        "明确 WCDB 只负责解密/读库，不提供微信密钥",
+        "标注参考项目 License：weflow-cli/wechat-exporter 为 MIT，WeFlow 为 CC BY-NC-SA 4.0",
+        "列出密钥提取、DB 解密、schema/parser、媒体、导出的优先参考入口",
+        "补充“不要走的弯路”清单：md --date bug、localId 唯一性、高 32 位文件类型、视频硬链接等"
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-11-17",
+      "author": "chenxi liu",
+      "changes": [
+        "新增微信 4.2 后端：wechat42-export.mjs + wechat42-sandbox.py + wechat42-media-map.py",
+        "使用 MIT 上游 TangGod991021/wechat-exporter 提取每库 raw key，解密后用统一 raw key+salt 重新加密到 sandbox",
+        "media junction 指回真实 msg/cache/resource；视频通过 media map 补 packed_info_data 中的 md5",
+        "修复 weflow-cli 1.21.17 的 md --date 误报：改用 json --media --date 抽取资源并合并 manifest",
+        "修复 4.2 编码文件类型（高 32 位=6）被误判为图片的问题",
+        "本机实测 4.2.0.13：文字/图片/文件/视频全部导出成功"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-11-16",
+      "author": "chenxi liu",
+      "changes": [
+        "首版：基于 weflow-cli 的本地微信聊天记录导出 skill",
+        "支持按群 / 按个人 / 按时间范围导出文字、图片、文件、视频",
+        "视频通过微信本地 msg/video 目录的 md5 索引补齐（weflow-cli 原生只给视频标签）",
+        "统一产出 messages.jsonl / messages.json / manifest.json / transcript.md / index.html / media/",
+        "提供环境体检、会话列举、dry-run、批量导出与缺失媒体统计"
+      ]
+    }
+  ]
+}
