@@ -1,0 +1,17 @@
+# Secrets / local data
+keys.json
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local work / exports
+work/
+out/
+exports/
+*.silk
+*.wav

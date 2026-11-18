@@ -1,0 +1,14 @@
+# Required
+cryptography
+zstandard
+
+# Optional: read SQLCipher databases with -wal/-shm directly.
+# Without it, the skill falls back to pure-Python main-DB decryption.
+# sqlcipher3-binary
+
+# Optional: Tencent WCDB (C++). Not required by the Python skill;
+# can be used as a compatibility/cross-check backend.
+# https://github.com/Tencent/wcdb
+
+# Optional: SILK -> WAV voice decoding (GPL-3.0; local only)
+# pilk

@@ -1,0 +1,8 @@
+wechat-summary
+Copyright 2026 frotms
+
+This product includes software and format knowledge from third-party projects.
+See THIRD_PARTY_NOTICES.md for details.
+
+The runtime does not vendor `pilk` (GPL-3.0); it is an optional separately
+installed dependency.

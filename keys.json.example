@@ -1,0 +1,11 @@
+{
+  "_comment": "本地密钥文件，勿提交、勿外传。数据库密钥是 32 字节（64 位 hex）或 32 字符口令；image_aes 是 16 位 ASCII。",
+  "accounts": {
+    "wxid_xxx": "<64位hex或32字符>"
+  },
+  "default": "",
+  "image_xor": 0,
+  "image_aes": "",
+  "_cfg_dword_comment": "可选：微信 4.x 的 cfgDword。提供后会派生 image_xor(=低字节) 与 image_aes=md5(str(cfgDword)+wxid)[:16]。",
+  "cfg_dword": 0
+}
