@@ -3,7 +3,7 @@
 > 建立：2026-11-19  
 > feat 基线：`80c7573`（tag `baseline-feat-2026-11-19`）  
 > main 归档：`9582320`（tag `archive-main-python-4.1-2026-11-18`）  
-> 基线测试：47 项 Node + 29 项 Python 全绿
+> 基线测试：47 项 Node + 29 项 Python 全绿（Phase 0）；完成第 1 项后为 47 + 37
 
 ## 0. 目标
 
@@ -54,7 +54,7 @@ main 不是被“合并进来”，而是作为**能力库**：只移植其中 f
 
 | # | 能力 | 来源 | 落到哪 | 验收 |
 | --- | --- | --- | --- | --- |
-| 1 | `verify --deep` 按 `local_id + server_id` 回源库对账 | main | feat audit/verify | 合成库 0 missing / 0 extra |
+| 1 ✅ | `verify --deep` 按 `local_id + server_id` 回源库对账 | main | feat audit/verify | 2026-11-19 完成；合成库 0 missing / 0 extra |
 | 2 | 4.1 真机对齐（图片 key、媒体布局、hardlink/resource 表） | main | feat 4.1 native | 真机 sessions/contacts/export/voice/sticker/revoke/audit 全过；只留一套引擎 |
 | 3 | 引用消息 `refermsg` 还原 | main | Python 解析层 | HTML/JSONL 可验证发送者/时间/原文 |
 | 4 | 合并转发 `recorditem` 内层展开 | main | Python 解析层 | 内层文字/文件名/发送者/时间齐全 |

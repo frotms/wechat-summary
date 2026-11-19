@@ -1,6 +1,6 @@
 # TODO（当前待办）
 
-> 更新：2026-11-19 · 版本 1.10.0  
+> 更新：2026-11-19 · 版本 1.10.1  
 > 只列**尚未完成/尚未验证**的 skill 工作；`BACKLOG.md` 里的收藏、朋友圈、公众号正文、语音转写等已记录项不重复。  
 > 定位：Claude Code Skill，**不做 GUI / 管理后台 / 工程化界面**；导出 HTML 只是浏览产物。
 
@@ -10,7 +10,7 @@
 
 - [x] 固化 feat 基线（`80c7573`，tag `baseline-feat-2026-11-19`）
 - [x] 归档 main（tag `archive-main-python-4.1-2026-11-18`）
-- [ ] `verify --deep` ID 对账（main → feat audit）
+- [x] `verify --deep` ID 对账（main → feat audit；2026-11-19 完成，含 coverage.boundary、类型/跳过校验）
 - [ ] 4.1 真机对齐（main → feat 4.1 native；与下方「4.1 真实兼容性验证」合并执行，只留一套引擎）
 - [ ] 引用 `refermsg` 还原（main → Python 解析层）
 - [ ] 合并转发 `recorditem` 展开（main → Python 解析层）

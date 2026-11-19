@@ -357,6 +357,8 @@ node scripts/wechat-export.mjs --group "项目群" --days 7 --output "D:\\wechat
 node scripts/wechat41-export.mjs audit --output "<输出目录>"
 ```
 
+需要逐条 ID 对账时给 `audit` 加 `--deep`（需要已解密的 `work/`，4.1/4.2 都支持）；它会报 `missing_ids`/`extra_ids`，能抓出计数相同但一丢一重的情况。
+
 **不要**默认把 `messages.jsonl` 或聊天正文贴进对话；用户明确要求分析时再读。
 
 ## 输出结构
@@ -420,6 +422,15 @@ node scripts/wechat42-export.mjs audit --output "<导出目录>"
 node scripts/wechat41-export.mjs audit --output "<导出目录>"
 ```
 
+深度对账（计数一致但可能一丢一重时用）：
+
+```bash
+node scripts/wechat42-export.mjs audit --output "<导出目录>" --deep
+node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
+```
+
+`--deep` 重新读取 `work/` 源库，按 `(local_id, server_id)` 对比源库 / 原始 JSON / `messages.jsonl`，报告 `missing_ids`、`extra_ids`、`exported_extra`、原始未导出条数和类型不符。它需要原生 `work/`；legacy weflow 模式不支持。边界优先用原始 JSON 的 `coverage.boundary`，没有时退回兜底值并在报告标 `reliable: false`，此时尾部消息可能漏检。
+
 看到"不完整"时按报告里的字段排查：
 
 | 现象 | 含义 |
@@ -427,6 +438,10 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>"
 | `dbMessages > rawMessages` | weflow-cli 少返回了消息；检查 `coverage`、时间参数、weflow 版本 |
 | `dbMessages < rawMessages` | 导出范围与库统计不一致；检查时区/`--to` 语义、是否读错会话 |
 | `导出+跳过 ≠ 原始` | 消息在类型过滤/打包阶段丢了；检查 `--types` 和 `skippedByType` |
+| `deep.missingIds` 非空 | 源库有、原始 JSON 没有：读库/时间窗/分页丢行 |
+| `deep.extraIds` 非空 | 原始 JSON 有、源库没有：会话或库在导出后发生变化 |
+| `deep.exportedNotInRaw` 非空 | 打包阶段多出了源里没有的消息 |
+| `deep.typeMismatch` 非空 | 导出的 `type` 不在 `--types` 里，类型过滤写错 |
 | `duplicateIds` | `localId:createTime` 重复；检查是否同一会话被多次追加 |
 | `outsideWindow` | 时间窗过滤不一致；检查本地时区 |
 | `brokenMedia` | JSONL 引用了不存在的文件；检查 `media/` 是否被移动/清理 |

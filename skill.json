@@ -1,14 +1,25 @@
 {
   "name": "wechat-export",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "category": "other/wechat",
   "source": "自建",
   "status": "draft",
   "author": "chenxi liu",
   "license": "MIT",
   "createdAt": "2026-11-16",
-  "updatedAt": "2026-11-18",
+  "updatedAt": "2026-11-19",
   "changelog": [
+    {
+      "version": "1.10.1",
+      "date": "2026-11-19",
+      "author": "chenxi liu",
+      "changes": [
+        "audit --deep：重新读取 work/ 源库，按 (local_id, server_id) 对账源库 / 原始 JSON / messages.jsonl，报告 missing_ids、extra_ids、exported_extra、原始未导出条数和类型不符",
+        "native-backend 原始 JSON 新增 coverage.boundary（导出时刻最新的 create_time+local_id），避免导出后新消息被误报为缺失；旧导出退回 raw-max/generatedAt 并标 reliable:false",
+        "4.1/4.2 audit 子命令支持 --deep；legacy weflow 模式要求先跑一次原生导出",
+        "测试增至 47 项 Node + 37 项 Python（新增 8 项深度对账用例：一丢一重、尾部缺失、limit 边界、generatedAt 兜底、类型不符、缺少 ID）"
+      ]
+    },
     {
       "version": "1.10.0",
       "date": "2026-11-18",

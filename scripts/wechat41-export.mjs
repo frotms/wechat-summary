@@ -30,7 +30,7 @@ function usage() {
 
 用法:
   node scripts/wechat41-export.mjs [正常的 wechat-export 参数]
-  node scripts/wechat41-export.mjs audit --output <导出目录> [--json]
+  node scripts/wechat41-export.mjs audit --output <导出目录> [--deep] [--json]
 
 额外选项:
   --weflow-cli-dir <scripts 目录>  默认从 npm root -g 查找 weflow-cli/scripts
@@ -308,16 +308,21 @@ function buildRevokeMap({ scriptsDir, configPath, python, targets, time, baseDir
 function runAudit(args) {
   let output = ''
   let json = false
+  let deep = false
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i]
     if (token === '--output' || token === '-o') { output = args[++i] || ''; continue }
     if (token.startsWith('--output=')) { output = token.slice('--output='.length); continue }
+    if (token === '--deep') { deep = true; continue }
     if (token === '--json') { json = true; continue }
     fail(`未知的 audit 参数: ${token}`)
   }
   if (!output) fail('audit 需要 --output <导出目录>')
   const python = findVenvPython()
   const nativeWork = join(homedir(), '.wechat-export', 'wechat41', 'work')
+  if (deep && !existsSync(join(nativeWork, 'message'))) {
+    fail('--deep 需要 4.1 原生 work/；先跑一次原生导出（不带 --legacy-weflow）', 3)
+  }
   let pythonArgs
   if (existsSync(join(nativeWork, 'message'))) {
     pythonArgs = [AUDIT, '--output', resolve(output), '--work-dir', nativeWork]
@@ -332,6 +337,7 @@ function runAudit(args) {
       '--config', configPath,
     ]
   }
+  if (deep) pythonArgs.push('--deep')
   if (json) pythonArgs.push('--json')
   const res = run(python, pythonArgs, {
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },

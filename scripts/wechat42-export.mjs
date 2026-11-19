@@ -51,7 +51,7 @@ function usage() {
   node scripts/wechat42-export.mjs status
   node scripts/wechat42-export.mjs doctor
   node scripts/wechat42-export.mjs check-updates
-  node scripts/wechat42-export.mjs audit --output <导出目录>
+  node scripts/wechat42-export.mjs audit --output <导出目录> [--deep] [--json]
   node scripts/wechat42-export.mjs clean
 
 setup:
@@ -82,6 +82,9 @@ doctor:
 
 check-updates:
   比较当前上游/vendor commit 与 GitHub 最新 HEAD；只报告，不自动更新。
+
+audit:
+  --deep  重新读取 work/ 源库，按 local_id+server_id 与原始 JSON、导出逐条对账。
 
 安全:
   sandbox/work/home 都含敏感数据；不导出时请执行 clean。
@@ -565,11 +568,13 @@ function runAudit(args) {
   let output = ''
   let workDir = config.workDir
   let json = false
+  let deep = false
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i]
     if (token === '--output' || token === '-o') { output = args[++i] || ''; continue }
     if (token.startsWith('--output=')) { output = token.slice('--output='.length); continue }
     if (token === '--work-dir') { workDir = args[++i] || ''; continue }
+    if (token === '--deep') { deep = true; continue }
     if (token === '--json') { json = true; continue }
     fail(`未知的 audit 参数: ${token}`)
   }
@@ -578,6 +583,7 @@ function runAudit(args) {
     fail('明文 work/ 不存在；先运行 setup（或一次普通导出会重建）', 3)
   }
   const pythonArgs = [AUDIT, '--output', resolve(output), '--work-dir', resolve(workDir)]
+  if (deep) pythonArgs.push('--deep')
   if (json) pythonArgs.push('--json')
   const res = run(config.venvPython, pythonArgs, { env: sandboxEnv(config) })
   process.exit(res.status ?? 0)

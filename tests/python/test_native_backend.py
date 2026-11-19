@@ -101,6 +101,8 @@ class NativeBackendTest(unittest.TestCase):
             payload = json.loads((out / f"{TARGET}_messages.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["messages"][0]["localId"], 1)
             self.assertEqual(payload["messages"][0]["serverId"], "srv-1")
+            self.assertEqual(payload["coverage"]["boundary"],
+                             {"createTime": TS, "localId": 1})
             self.assertEqual(payload["messages"][0]["rawContent"], "hello")
             self.assertEqual(payload["messages"][0]["parsedContent"], "hello")
             self.assertEqual(payload["messages"][0]["isSend"], 0)

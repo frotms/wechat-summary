@@ -10,6 +10,8 @@ This is the independent cross-check for "did we get every message?":
   * compare that with `messages.jsonl` + skipped-by-type,
   * check for duplicate ids, messages outside the window, and media files
     referenced by the JSONL but missing on disk.
+  * with `--deep`, re-read the decrypted work DB and compare the exact
+    `(local_id, server_id)` set with the raw JSON and the export.
 
 Output is a JSON report (also written to `<export>/audit.json`). Exit code is
 0 when the message chain is complete, 5 when something is missing.
@@ -59,38 +61,63 @@ def table_name(username: str) -> str:
     return "Msg_" + hashlib.md5(str(username).encode()).hexdigest()
 
 
-def count_plain(work: Path, username: str, since, until):
-    """Count messages in the decrypted 4.2 work DB."""
-    table = table_name(username)
-    total = 0
-    by_type = {}
+_TABLE_SHARDS = {}
+
+
+def table_shard_map(work: Path):
+    """Cache Msg_* table -> shard path so each shard is opened once per run."""
+    key = str(work)
+    cached = _TABLE_SHARDS.get(key)
+    if cached is not None:
+        return cached
+    mapping = {}
     for shard in sorted(work.glob("message/message_*.db")):
         try:
             conn = sqlite3.connect(f"file:{shard}?mode=ro", uri=True)
         except sqlite3.Error:
             continue
         try:
-            names = {row[0] for row in conn.execute(
-                "select name from sqlite_master where type='table'")}
-            if table not in names:
-                continue
-            conds, params = [], []
-            if since is not None:
-                conds.append("create_time >= ?")
-                params.append(since)
-            if until is not None:
-                conds.append("create_time <= ?")
-                params.append(until)
-            where = (" where " + " and ".join(conds)) if conds else ""
-            for local_type, n in conn.execute(
-                    f'select local_type, count(*) from "{table}"{where} group by local_type', params):
-                base = int(local_type) & 0xFFFFFFFF
-                by_type[base] = by_type.get(base, 0) + int(n)
-                total += int(n)
+            for (name,) in conn.execute(
+                    "select name from sqlite_master where type='table' and name like 'Msg_%'"):
+                mapping.setdefault(name, shard)
         except sqlite3.Error:
-            continue
+            pass
         finally:
             conn.close()
+    _TABLE_SHARDS[key] = mapping
+    return mapping
+
+
+def count_plain(work: Path, username: str, since, until):
+    """Count messages in the decrypted work DB."""
+    table = table_name(username)
+    shard = table_shard_map(work).get(table)
+    if shard is None:
+        return 0, {}
+    total = 0
+    by_type = {}
+    try:
+        conn = sqlite3.connect(f"file:{shard}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return 0, {}
+    try:
+        conds, params = [], []
+        if since is not None:
+            conds.append("create_time >= ?")
+            params.append(since)
+        if until is not None:
+            conds.append("create_time <= ?")
+            params.append(until)
+        where = (" where " + " and ".join(conds)) if conds else ""
+        for local_type, n in conn.execute(
+                f'select local_type, count(*) from "{table}"{where} group by local_type', params):
+            base = int(local_type) & 0xFFFFFFFF
+            by_type[base] = by_type.get(base, 0) + int(n)
+            total += int(n)
+    except sqlite3.Error:
+        pass
+    finally:
+        conn.close()
     return total, by_type
 
 
@@ -148,6 +175,235 @@ def read_json(path: Path):
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def format_id(pair):
+    local_id, server_id = pair
+    return f"{local_id}:{server_id}" if server_id else str(local_id)
+
+
+def id_sort_key(pair):
+    return (pair[0], pair[1])
+
+
+def raw_ids(raw, since=None, until=None):
+    """(localId, serverId) keys from the raw message JSON, within the window."""
+    ids = set()
+    invalid = 0
+    for item in raw or []:
+        local_id = item.get("localId")
+        if local_id is None:
+            invalid += 1
+            continue
+        try:
+            local_id = int(local_id)
+        except (TypeError, ValueError):
+            invalid += 1
+            continue
+        ts = item.get("createTime")
+        if ts is not None:
+            try:
+                ts = int(ts)
+            except (TypeError, ValueError):
+                ts = None
+            if ts is not None and (
+                    (since is not None and ts < since)
+                    or (until is not None and ts > until)):
+                continue
+        ids.add((local_id, str(item.get("serverId") or "")))
+    return ids, invalid
+
+
+def exported_ids(records):
+    """(localId, serverId) keys from messages.jsonl."""
+    ids = set()
+    invalid = 0
+    for record in records:
+        local_id = record.get("localId")
+        if local_id is None:
+            invalid += 1
+            continue
+        try:
+            local_id = int(local_id)
+        except (TypeError, ValueError):
+            invalid += 1
+            continue
+        ids.add((local_id, str(record.get("serverId") or "")))
+    return ids, invalid
+
+
+def coverage_boundary(coverage):
+    """Export-time cursor recorded by native-backend coverage.boundary."""
+    boundary = coverage.get("boundary") or {}
+    ts = boundary.get("createTime")
+    local_id = boundary.get("localId")
+    if ts is None or local_id is None:
+        return None
+    try:
+        return (int(ts), int(local_id))
+    except (TypeError, ValueError):
+        return None
+
+
+def raw_max_boundary(raw, since=None, until=None):
+    """Fallback cursor from raw messages (may hide trailing losses)."""
+    best = None
+    for item in raw or []:
+        ts = item.get("createTime")
+        local_id = item.get("localId")
+        if ts is None or local_id is None:
+            continue
+        try:
+            ts = int(ts)
+            local_id = int(local_id)
+        except (TypeError, ValueError):
+            continue
+        if (since is not None and ts < since) or (until is not None and ts > until):
+            continue
+        key = (ts, local_id)
+        if best is None or key > best:
+            best = key
+    return best
+
+
+def generated_boundary(bundle_dir: Path):
+    """Fallback cursor from the bundle's generatedAt timestamp."""
+    manifest = read_json(bundle_dir / "manifest.json") or {}
+    value = manifest.get("generatedAt") or ""
+    if not value:
+        return None
+    try:
+        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+    return (int(stamp), None)
+
+
+def source_ids(work: Path, username: str, since, until, limit=0, boundary=None):
+    """Re-read the decrypted work DB and return the exact message-id set."""
+    table = table_name(username)
+    shard = table_shard_map(work).get(table)
+    if shard is None:
+        return set(), 0
+    try:
+        conn = sqlite3.connect(f"file:{shard}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return set(), 0
+    rows = []
+    try:
+        columns = {row[1] for row in conn.execute(f'pragma table_info("{table}")')}
+        server_expr = "server_id" if "server_id" in columns else "''"
+        conds, params = [], []
+        if since is not None:
+            conds.append("create_time >= ?")
+            params.append(since)
+        if until is not None:
+            conds.append("create_time <= ?")
+            params.append(until)
+        if boundary is not None:
+            ts, local_id = boundary
+            if local_id is None:
+                conds.append("create_time <= ?")
+                params.append(ts)
+            else:
+                conds.append("(create_time < ? or (create_time = ? and local_id <= ?))")
+                params += [ts, ts, local_id]
+        where = (" where " + " and ".join(conds)) if conds else ""
+        rows = conn.execute(
+            f'select local_id, {server_expr}, create_time from "{table}"{where}',
+            params).fetchall()
+    except sqlite3.Error:
+        return set(), 0
+    finally:
+        conn.close()
+    rows.sort(key=lambda row: (int(row[2] or 0), int(row[0] or 0)), reverse=True)
+    if limit and limit > 0:
+        rows = rows[:int(limit)]
+    ids = set()
+    for local_id, server_id, _ts in rows:
+        try:
+            local_id = int(local_id)
+        except (TypeError, ValueError):
+            continue
+        ids.add((local_id, str(server_id or "")))
+    return ids, len(rows)
+
+
+def deep_check(bundle_dir: Path, target_id: str, query: dict, work_dir: Path,
+               records, raw, coverage, skipped: int):
+    """Compare source DB, raw JSON, and exported JSONL by message identity."""
+    since, until = window_from_query(query)
+    limit = int(query.get("limit") or 0)
+
+    boundary = coverage_boundary(coverage)
+    boundary_source = "raw-coverage"
+    reliable = boundary is not None
+    if boundary is None:
+        boundary = raw_max_boundary(raw, since, until)
+        boundary_source = "raw-max"
+    if boundary is None:
+        boundary = generated_boundary(bundle_dir)
+        boundary_source = "generatedAt"
+
+    try:
+        source_set, source_rows = source_ids(
+            work_dir, target_id, since, until, limit, boundary)
+    except Exception as exc:  # noqa: BLE001
+        return {"available": True, "ok": False, "error": str(exc)}
+
+    raw_set, raw_invalid = raw_ids(raw, since, until)
+    exp_set, exp_invalid = exported_ids(records)
+
+    missing = source_set - raw_set
+    extra = raw_set - source_set
+    exported_not_raw = exp_set - raw_set
+    raw_not_exported = raw_set - exp_set
+
+    requested_types = query.get("types") or []
+    type_mismatch = []
+    if requested_types and "all" not in requested_types:
+        allowed = set(requested_types)
+        for record in records:
+            kind = record.get("type")
+            if kind and kind not in allowed:
+                type_mismatch.append(record.get("id") or format_id(
+                    (record.get("localId"), record.get("serverId") or "")))
+
+    checks = {
+        "sourceIdsMatchRaw": not missing and not extra,
+        "exportedIdsInRaw": not exported_not_raw,
+        "rawNotExportedMatchesSkipped": len(raw_not_exported) == skipped,
+        "idsAvailable": raw_invalid == 0 and exp_invalid == 0,
+        "typesMatchQuery": not type_mismatch,
+    }
+    return {
+        "available": True,
+        "ok": all(checks.values()),
+        "boundary": {
+            "createTime": boundary[0] if boundary else None,
+            "localId": boundary[1] if boundary else None,
+            "source": boundary_source,
+            "reliable": reliable,
+        },
+        "source": {"messages": len(source_set), "rows": source_rows},
+        "raw": {"messages": len(raw_set), "withoutIds": raw_invalid},
+        "export": {
+            "messages": len(exp_set),
+            "withoutIds": exp_invalid,
+            "skippedByType": skipped,
+        },
+        "checks": checks,
+        "missingCount": len(missing),
+        "missingIds": [format_id(pair) for pair in sorted(missing, key=id_sort_key)][:20],
+        "extraCount": len(extra),
+        "extraIds": [format_id(pair) for pair in sorted(extra, key=id_sort_key)][:20],
+        "exportedNotInRawCount": len(exported_not_raw),
+        "exportedNotInRaw": [
+            format_id(pair) for pair in sorted(exported_not_raw, key=id_sort_key)][:20],
+        "rawNotExportedCount": len(raw_not_exported),
+        "typeMismatchCount": len(type_mismatch),
+        "typeMismatch": type_mismatch[:20],
+    }
 
 
 def read_jsonl(path: Path):
@@ -236,6 +492,13 @@ def audit_bundle(bundle_dir: Path, bundle: dict, query: dict, mode: dict):
 
     chain_ok = raw_count is not None and (exported + skipped == raw_count)
     source_ok = db_count is not None and raw_count is not None and db_count == raw_count
+
+    deep = None
+    if mode.get("deep"):
+        deep = deep_check(
+            bundle_dir, target_id, query, Path(mode["work_dir"]),
+            records, raw, coverage, skipped)
+
     clean = bool(
         not error
         and raw_count is not None
@@ -243,7 +506,20 @@ def audit_bundle(bundle_dir: Path, bundle: dict, query: dict, mode: dict):
         and chain_ok and source_ok
         and not duplicate_ids and outside == 0
         and coverage.get("mayHaveMore") is not True
+        and (deep is None or bool(deep.get("ok")))
     )
+
+    checks = {
+        "sourceMatchesRaw": source_ok,
+        "duplicateIds": duplicate_ids[:20],
+        "outsideWindow": outside,
+        "brokenMedia": broken_media[:50],
+        "brokenMediaCount": len(broken_media),
+        "coverageMayHaveMore": coverage.get("mayHaveMore") is True,
+    }
+    if deep is not None:
+        checks["sourceIdsMatchRaw"] = bool(
+            deep.get("checks", {}).get("sourceIdsMatchRaw"))
 
     return {
         "target": {"id": target_id, "name": target.get("name") or target_id},
@@ -262,14 +538,8 @@ def audit_bundle(bundle_dir: Path, bundle: dict, query: dict, mode: dict):
             "skippedByType": skipped,
             "chainMatchesRaw": chain_ok,
         },
-        "checks": {
-            "sourceMatchesRaw": source_ok,
-            "duplicateIds": duplicate_ids[:20],
-            "outsideWindow": outside,
-            "brokenMedia": broken_media[:50],
-            "brokenMediaCount": len(broken_media),
-            "coverageMayHaveMore": coverage.get("mayHaveMore") is True,
-        },
+        "checks": checks,
+        "deep": deep,
         "complete": clean,
     }
 
@@ -294,6 +564,8 @@ def main():
     ap.add_argument("--work-dir", default="", help="4.2：已解密的工作目录")
     ap.add_argument("--weflow-cli-dir", default="", help="4.1：weflow-cli scripts 目录")
     ap.add_argument("--config", default="", help="4.1：weflow-cli config.json")
+    ap.add_argument("--deep", action="store_true",
+                    help="重新读取 work/ 源库，按 local_id+server_id 对账")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
@@ -308,6 +580,9 @@ def main():
         }
     else:
         raise SystemExit("需要 --work-dir（4.2）或 --weflow-cli-dir + --config（4.1）")
+    if args.deep and mode["kind"] != "work":
+        raise SystemExit("--deep 需要 --work-dir（已解密的 work/）；legacy weflow 模式不支持")
+    mode["deep"] = bool(args.deep)
 
     manifest, bundles = load_bundles(output)
     results = []
@@ -326,6 +601,17 @@ def main():
         "outsideWindow": sum(item["checks"]["outsideWindow"] for item in results),
     }
     success = all(item["complete"] for item in results)
+    deep_totals = None
+    if args.deep:
+        deep_totals = {
+            "checkedTargets": len(results),
+            "missingIds": sum((item.get("deep") or {}).get("missingCount", 0) for item in results),
+            "extraIds": sum((item.get("deep") or {}).get("extraCount", 0) for item in results),
+            "exportedNotInRaw": sum(
+                (item.get("deep") or {}).get("exportedNotInRawCount", 0) for item in results),
+            "typeMismatch": sum(
+                (item.get("deep") or {}).get("typeMismatchCount", 0) for item in results),
+        }
     report = {
         "schema": "wechat-export-audit/v1",
         "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -333,6 +619,7 @@ def main():
         "query": manifest.get("query"),
         "success": success,
         "totals": totals,
+        "deep": deep_totals,
         "targets": results,
     }
     try:
@@ -347,10 +634,16 @@ def main():
         print(f"完整性校验：{totals['completeTargets']}/{totals['targets']} 个会话通过")
         print(f"  数据库消息 {totals['dbMessages']}，原始 {totals['rawMessages']}，"
               f"导出 {totals['exportedMessages']}，按类型跳过 {totals['skippedByType']}")
+        if deep_totals is not None:
+            print(f"  深度对账：源库缺 {deep_totals['missingIds']} 条，"
+                  f"源库多 {deep_totals['extraIds']} 条，"
+                  f"导出不在原始 {deep_totals['exportedNotInRaw']} 条，"
+                  f"类型不符 {deep_totals['typeMismatch']} 条")
         problems = [item for item in results if not item["complete"]]
         for item in problems:
             source = item["source"]
             checks = item["checks"]
+            deep = item.get("deep") or {}
             reasons = []
             if source["error"]:
                 reasons.append(f"读库失败: {source['error']}")
@@ -365,9 +658,31 @@ def main():
                 reasons.append(f"时间窗外 {checks['outsideWindow']} 条")
             if checks["coverageMayHaveMore"]:
                 reasons.append("coverage.mayHaveMore=true")
+            if deep.get("error"):
+                reasons.append(f"深度对账失败: {deep['error']}")
+            if deep.get("missingCount"):
+                reasons.append(f"源库 {deep['missingCount']} 条不在原始 JSON")
+            if deep.get("extraCount"):
+                reasons.append(f"原始 JSON {deep['extraCount']} 条不在源库")
+            if deep.get("exportedNotInRawCount"):
+                reasons.append(f"导出 {deep['exportedNotInRawCount']} 条不在原始 JSON")
+            deep_checks = deep.get("checks") or {}
+            if deep and not deep_checks.get("rawNotExportedMatchesSkipped"):
+                reasons.append("原始未导出条数 ≠ 按类型跳过条数")
+            if deep and not deep_checks.get("typesMatchQuery"):
+                reasons.append(f"导出类型与 --types 不符 {deep.get('typeMismatchCount', 0)} 条")
+            if deep and not deep_checks.get("idsAvailable"):
+                reasons.append("原始/导出缺少 localId/serverId，无法深度对账")
             print(f"  ✗ {item['target']['name']}: {'；'.join(reasons) or '不完整'}")
         if totals["brokenMedia"]:
             print(f"  提醒：导出 JSONL 引用了 {totals['brokenMedia']} 个磁盘上不存在的媒体文件")
+        unreliable = [
+            item for item in results
+            if (item.get("deep") or {}).get("boundary", {}).get("reliable") is False
+        ]
+        if deep_totals is not None and unreliable:
+            print(f"  提醒：{len(unreliable)} 个会话的深度边界来自兜底值，"
+                  "尾部消息可能漏检；重新导出可写入 coverage.boundary")
         print(f"  报告: {output / 'audit.json'}")
     return 0 if success else 5
 

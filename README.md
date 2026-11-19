@@ -255,6 +255,29 @@ node scripts/wechat42-export.mjs audit --output "<导出目录>"
 node scripts/wechat41-export.mjs audit --output "<导出目录>"
 ```
 
+### 深度对账（`--deep`）
+
+计数一致不等于内容一致：漏一条、重复一条可能让总数刚好相等。`--deep` 会重新读取 `work/` 源库，按消息身份 `(local_id, server_id)` 逐条对账：
+
+```text
+源库重读的消息 ID 集合  A
+原始 JSON 的消息 ID 集合  B
+messages.jsonl 的 ID 集合 C
+
+missing_ids   = A - B      # 源库有、原始 JSON 没有
+extra_ids     = B - A      # 原始 JSON 有、源库没有
+exported_extra = C - B     # 导出有、原始 JSON 没有
+```
+
+同时检查 `B - C` 的条数是否等于按类型跳过数，以及导出记录的 `type` 是否都在 `--types` 里。报告写进 `audit.json` 的 `deep` 字段，缺失或多余时退出码 **5**。
+
+```bash
+node scripts/wechat42-export.mjs audit --output "<导出目录>" --deep
+node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
+```
+
+深度对账需要一个**导出时刻的边界**，避免把导出后新到的消息误报为缺失。原生后端会把 DB 里最新的 `(create_time, local_id)` 写进原始 JSON 的 `coverage.boundary`；旧导出没有这个字段时会退回 `raw-max` / `generatedAt` 并在报告里标 `reliable: false`，尾部消息可能漏检，重新导出即可获得可靠边界。`--deep` 只支持已解密的 `work/`（4.1/4.2 原生路径）；legacy `weflow` 模式需要先跑一次原生导出。
+
 校验只能证明"数据库里有、导出里也有"；本机从未缓存/已被微信清理的媒体仍会如实记为缺失，不能凭空恢复。
 
 ### 撤回记录
@@ -281,7 +304,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>"
 <输出目录>/
 ├── index.html
 ├── manifest.json
-├── audit.json            # 完整性校验报告（数据库/原始/导出 对账）
+├── audit.json            # 完整性校验报告（数据库/原始/导出；--deep 含逐条 ID 对账）
 ├── README.txt
 └── <名称>_<id前8位>/
     ├── index.html          # 可按类型/发送者/关键词筛选的聊天页
@@ -358,14 +381,14 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>"
 npm test
 ```
 
-当前 47 项 Node 测试 + 29 项 Python 测试，覆盖：
+当前 47 项 Node 测试 + 37 项 Python 测试，覆盖：
 
 - 参数解析、日期窗口、类型映射
 - 文件 appmsg / 视频 md5 / 群发送者前缀 / 链接 fallback
 - 视频目录扫描、`_raw` 优先、文件头校验、V2 解码
 - 语音 SILK→WAV（pysilk 合成）
 - 表情包解密、wxgf 转码、内置表情码渲染
-- 完整性校验：数据库行数 = 原始 JSON = 导出 + 按类型跳过；缺行/重复/时间窗外可检出
+- 完整性校验：数据库行数 = 原始 JSON = 导出 + 按类型跳过；缺行/重复/时间窗外可检出；`--deep` 按 `local_id+server_id` 逐条对账（含“计数相等但一丢一重”）
 - 撤回记录：批量撤回匹配原消息、单条撤回孤立记录、HTML/Markdown 标记
 - 只读命令白名单、输出路径保护
 - Level 2 原生 4.2 后端：sessions/contacts/export json（含图片/文件）
@@ -396,7 +419,7 @@ scripts/
   wechat41-voice-map.py      # 4.1 legacy 语音映射
   wechat-sticker-map.py      # 表情包媒体映射（4.1/4.2）
   wechat-sticker-seed.py     # 表情包解密种子探测
-  wechat-audit.py            # 完整性校验（数据库/原始/导出 对账）
+  wechat-audit.py            # 完整性校验（数据库/原始/导出 对账；--deep 逐条 ID 对账）
   wechat-revoke-map.py       # 撤回记录映射（批量/单条）
   v2-decode.py               # V2 加密视频解码（独立入口）
   python-tests.mjs           # Python 测试 runner

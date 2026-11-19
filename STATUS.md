@@ -1,6 +1,6 @@
 # 当前状态与待办
 
-> 版本：1.10.0（2026-11-18）  
+> 版本：1.10.1（2026-11-19）  
 > 验证环境：Windows 10 + 微信桌面版 4.2.0.13  
 > 详细设计见 `DESIGN.md`；按优先级排列的待办见 `TODO.md`；已记录但暂不实现的需求见 `BACKLOG.md`。
 
@@ -18,13 +18,13 @@
 | 撤回记录 | ✅ | 批量撤回匹配原消息；单条/孤立记录写 `revokes.json`，消息标记 `revoked` |
 | 按时间/群/个人 | ✅ | `--from/--to/--date/--days`、`--group/--person`、`--all-*` |
 | V2 加密视频 | ✅ | `lib/v2_decode.py`，4.2 媒体映射自动尝试 |
-| 完整性校验 | ✅ | 数据库行数 = 原始 JSON = 导出 + 按类型跳过；`audit.json` |
+| 完整性校验 | ✅ | 数据库行数 = 原始 JSON = 导出 + 按类型跳过；`audit.json`；`audit --deep` 按 `local_id+server_id` 逐条对账 |
 | 只读硬约束 | ✅ | weflow-cli 命令白名单 + 输出路径保护；不写/不转发/不增删改 |
 | 4.2 后端 | ✅ | 内置 vendor（wechat-exporter MIT）+ sandbox；默认 `native-backend.py` 读取 `work/`，4.2 导出不再依赖 `weflow-cli`（`--legacy-weflow` 可回退） |
 | 4.1 后端 | ✅ 原生（合成测试） | `wechat41-decrypt.py` → `work/` → native backend；本机无 4.1 真机数据，仅有合成 SQLCipher 测试 |
 | 脱离 `weflow-cli` | ✅ 4.1/4.2 原生 | `native-backend.py` + `native-weflow.mjs`；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
-| 测试 | ✅ | 47 项 Node + 29 项 Python |
+| 测试 | ✅ | 47 项 Node + 37 项 Python |
 
 ### 本机验证基线（微信 4.2.0.13）
 
@@ -35,13 +35,14 @@
 - 2026-11-17：批量撤回 2 条，2/2 匹配原消息
 - 2026-10-29：完整性校验 557 = 557 = 557；`--types text` 时 441 + 跳过 116 = 557
 - 2026-11-18：Level 2 原生 4.2 实测：文字 9/9、图片 2/2、文件 3/3、语音 4/4、视频 1/1；audit 通过
+- 2026-11-19：`audit --deep` 逐条 ID 对账：完整链 0 missing / 0 extra；一丢一重、尾部缺失、导出后新消息边界、类型不符均有测试
 
 ## 二、已知限制
 
 1. **普通单条撤回**：本地通常只剩 `sysmsg type="revokemsg"` 提示，没有 `newmsgid`，原内容一般拿不到；`revokemessage` 表本机 0 行，未验证。
 2. **批量撤回**：依赖原消息行仍在；原行被删除则无法恢复。
 3. **`weflow-cli` 依赖**：4.1/4.2 默认都走原生后端，不再需要 `weflow-cli`；只有 `--legacy-weflow` 回退时才用。
-3. **实时库一致性**：`audit` 在导出后重新查库，时间范围含今天且导出期间有新消息时可能误报。
+3. **实时库一致性**：普通计数 `audit` 在导出后重新查库，时间范围含今天时可能误报；`audit --deep` 优先用 `coverage.boundary` 钉住导出时刻，旧导出退回兜底边界并标 `reliable: false`。
 4. **4.1 全链路**：语音、表情、撤回、audit 只有代码，无真机验证。
 5. **V2/HEVC 图片**：V2 视频有合成测试；图片侧依赖 weflow-cli，未专门验证。
 6. **真实 V2 视频**：本机 1331 个视频全是普通 MP4，V2 只有合成测试。
@@ -56,7 +57,7 @@
 
 ### P0：结果可信度
 
-- [ ] 实时库一致性：导出开始时钉住 `max(create_time)` 或做边界容差，避免今天的新消息导致 audit 误报。
+- [ ] 实时库一致性：普通计数 audit 仍需边界容差；`audit --deep` 已用 `coverage.boundary` 钉住导出时刻。
 - [ ] 4.1 真机验证：语音映射、表情包、撤回、audit。
 - [ ] 单条撤回 `revokemessage` 实样：确认 `content` 是否为原文、`svr_id` 格式、`revoke_time` 单位。
 - [ ] 大会话性能：减少媒体映射逐目标全表扫描；评估直读媒体。
@@ -93,7 +94,7 @@
 
 ```bash
 npm test                  # 47 项 Node 测试
-npm run test:py           # 29 项 Python 测试
+npm run test:py           # 37 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs audit --output "<导出目录>"

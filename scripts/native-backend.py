@@ -26,7 +26,9 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -96,6 +98,38 @@ def make_store(work: Path, account: Path):
     info = store.self_info()
     store.my_wxid = info.get("wxid") or ""
     return store
+
+
+def export_boundary(store, talker: str, since, until):
+    """Newest (create_time, local_id) in the window, independent of parsing.
+
+    Deep audit uses this to pin the export time: messages that arrive after
+    the export are newer than this cursor and must not be reported missing.
+    """
+    db, table = store.find_table(talker)
+    if not table:
+        return None
+    conds, params = [], []
+    if since:
+        conds.append("create_time >= ?")
+        params.append(int(datetime.strptime(since, "%Y-%m-%d").timestamp()))
+    if until:
+        conds.append("create_time <= ?")
+        params.append(int(datetime.strptime(until, "%Y-%m-%d").timestamp()) + 86399)
+    where = (" where " + " and ".join(conds)) if conds else ""
+    try:
+        conn = sqlite3.connect(db)
+        try:
+            row = conn.execute(
+                f'select create_time, local_id from "{table}"{where} '
+                'order by create_time desc, local_id desc limit 1', params).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    return {"createTime": int(row[0]), "localId": int(row[1])}
 
 
 def safe_name(value: str, fallback: str = "file") -> str:
@@ -447,6 +481,7 @@ def cmd_export(args):
     if args.media:
         store.refresh_video_index()
     msgs = store.messages(args.talker, since=since, until=until, limit=limit)
+    boundary = export_boundary(store, args.talker, since, until)
     if not msgs:
         print(json.dumps({"success": False, "code": "NO_MESSAGES",
                           "error": "未找到消息"}, ensure_ascii=False))
@@ -463,6 +498,7 @@ def cmd_export(args):
         "requestedLimit": int(args.limit or 0),
         "returned": len(rows),
         "mayHaveMore": bool(limit and len(rows) >= limit),
+        "boundary": boundary,
     }
     path.write_text(json.dumps({
         "schema": "weflow-message/v1",
