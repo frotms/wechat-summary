@@ -1,8 +1,24 @@
 # TODO（当前待办）
 
-> 更新：2026-11-18 · 版本 1.10.0  
+> 更新：2026-11-19 · 版本 1.10.0  
 > 只列**尚未完成/尚未验证**的 skill 工作；`BACKLOG.md` 里的收藏、朋友圈、公众号正文、语音转写等已记录项不重复。  
 > 定位：Claude Code Skill，**不做 GUI / 管理后台 / 工程化界面**；导出 HTML 只是浏览产物。
+
+## 分支收敛（P0，进行中）
+
+> 目标：以 feat 为唯一主干吸收 main 能力，最终只保留一个 `main` 分支、一个入口、一套产物。完整计划与验收见 `docs/MERGE_PLAN.md`。
+
+- [x] 固化 feat 基线（`80c7573`，tag `baseline-feat-2026-11-19`）
+- [x] 归档 main（tag `archive-main-python-4.1-2026-11-18`）
+- [ ] `verify --deep` ID 对账（main → feat audit）
+- [ ] 4.1 真机对齐（main → feat 4.1 native；与下方「4.1 真实兼容性验证」合并执行，只留一套引擎）
+- [ ] 引用 `refermsg` 还原（main → Python 解析层）
+- [ ] 合并转发 `recorditem` 展开（main → Python 解析层）
+- [ ] 公众号正文 / 表情 CDN 补下载（main → 可选网络模块）
+- [ ] `decrypt-image` 单文件调试入口（main → Python 工具）
+- [ ] 单入口自动识别 4.1/4.2（feat → `wechat-export.mjs`）
+- [ ] 输出 schema 统一（以 feat JSONL 为准）
+- [ ] 文档/测试收编（SECURITY/VERSION_MAINTENANCE、selftest 场景）
 
 ## P0：影响 skill 正确使用
 

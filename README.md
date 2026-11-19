@@ -379,6 +379,7 @@ STATUS.md                    # 当前功能、限制与按优先级排列的待�
 TODO.md                      # 当前待办（P0/P1/P2；不含 GUI/工程化界面）
 README.md / DESIGN.md        # 说明与设计
 BACKLOG.md                   # 已记录、暂不实现的需求（收藏等）
+docs/MERGE_PLAN.md           # 分支收敛计划（main → feat，含跟踪表）
 compat.json                  # 微信版本 → 上游 commit → 验证结果
 scripts/
   wechat-export.mjs          # 主命令（4.1 / weflow-cli）
