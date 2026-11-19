@@ -212,6 +212,11 @@ def audit_bundle(bundle_dir: Path, bundle: dict, query: dict, mode: dict):
     raw_count = len(raw) if raw is not None else None
     exported = len(records)
     skipped = int((bundle.get("stats") or {}).get("skippedByType") or 0)
+    # An empty time range legitimately has no raw JSON file: weflow-cli returns
+    # "未找到消息" and the orchestrator writes no messages file. If the DB also
+    # has no rows and nothing was exported, that is complete, not missing.
+    if raw is None and db_count == 0 and exported == 0 and skipped == 0:
+        raw_count = 0
 
     duplicate_ids = []
     seen = set()

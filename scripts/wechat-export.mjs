@@ -67,7 +67,7 @@ import {
   writeText,
 } from './lib/media.mjs'
 
-const SKILL_VERSION = '1.8.0'
+const SKILL_VERSION = '1.10.0'
 
 const ALL_TYPES = [
   'text', 'image', 'file', 'video', 'voice', 'emoji',

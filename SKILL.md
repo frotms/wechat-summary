@@ -7,7 +7,7 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 
 把本机微信桌面客户端的聊天记录导出成一个**自包含目录**：文字、图片、文件本体、视频都在里面，附带可筛选的 HTML 浏览页和机器可读的 JSONL。
 
-数据读取与解密交给 [`weflow-cli`](https://github.com/zhuobichen/weflow-cli)（本机只读，不上传）。本 skill 在它之上补齐：
+数据读取与解密：4.1/4.2 默认都由原生后端完成（4.1 `wechat41-decrypt.py`，4.2 `native-backend.py`）；`--legacy-weflow` 可回退到 [`weflow-cli`](https://github.com/zhuobichen/weflow-cli)。全程本机只读，不上传。
 
 - 目标解析：按群名 / 人名 / 会话 ID 选一个或多个会话
 - 时间编排：`--from/--to`、`--date`、`--days`
@@ -23,7 +23,7 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 - 微信 3.x 为尽力兼容：视频目录按 `FileStorage/Video` 兜底
 - 用户本人已登录、且有权访问的本地数据
 
-> **版本提示**：`weflow-cli` 当前验证到微信 4.1.15.56。微信 **4.2** 不走 `weflow-cli init`，改用本 skill 的 `wechat42-export.mjs`（见下节）；它通过 `wechat-exporter` 提取每库 raw key，再构造 sandbox 给 `weflow-cli` 读。`--check` 会输出 `wechatCompatibility.verdict`（如 `newer-than-verified`）。
+> **版本提示**：`weflow-cli` 当前验证到微信 4.1.15.56。微信 **4.2** 不走 `weflow-cli init`：由 vendor 提取每库 raw key、解密到 `work/`，默认用 `native-backend.py` 直接导出；`--legacy-weflow` 才构造 sandbox 给 `weflow-cli` 读。`--check` 会输出 `wechatCompatibility.verdict`。
 
 **不适用**
 
@@ -46,7 +46,7 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
    Node 端（`resolveOutputDir`、`wechat42-export.mjs`）与 Python 端（`lib/safety.py` 的 `assert_outside`）双侧检查；违反时直接失败，不降级为警告。
 3. **读取与复制语义**：
    - 4.2 只读取 `Config.Cipher` 与源库字节；解密到账号目录外的 `work/`，再重加密到 `sandbox/`。
-   - 图片/文件在导出包内是硬链接，但链接的是 `raw/`（weflow-cli 已导出的副本），不是微信源文件。
+   - 图片/文件在导出包内是硬链接，但链接的是 `raw/`（导出器写出的副本，不是微信源文件）。
    - 视频、表情包是**复制**，不是硬链接，避免编辑导出文件反向影响源。
    - 全程无上传；`check-updates` 只做 `git ls-remote`，不下载、不执行上游代码。
 
@@ -66,15 +66,18 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 微信 4.2 的密钥不再是一把可由 `weflow-cli init --passphrase` 使用的共享口令，而是每库独立 raw key。`weflow-cli` 的自动 Hook 对 4.2 不生效，因此需要单独的 4.2 后端：
 
 - 核心已 vendor：`scripts/vendor/wechat42/`（来自 `TangGod991021/wechat-exporter`，MIT，commit `cc718ef`）
+  - 这里的“vendor”只覆盖**密钥提取/解密/消息解析**。
+  - 4.2 默认使用 `scripts/native-backend.py` + `scripts/native-weflow.mjs` 读取 `work/` 并导出，不再调用 `weflow-cli`；`--legacy-weflow` 可回退。
+  - 4.1 默认也走原生路径（`wechat41-decrypt.py` → `work/` → native backend）；`--legacy-weflow` 才走 `weflow-cli`。
 - 本 skill 的 `scripts/wechat42-export.mjs` 负责：
   1. 调用 vendor 提取每库 raw key（也可用 `--tool-dir` 指向外部上游做更新验证）；
   2. 解密到临时工作目录；
-  3. 用**同一个 raw key + salt** 重新加密到 sandbox（让 `weflow-cli` 能按 `x'<key><salt>'` 读取所有分片）；
+  3. 用**同一个 raw key + salt** 重新加密到 sandbox（仅 `--legacy-weflow` 需要，让 `weflow-cli` 能读所有分片）；
   4. 把 sandbox 的 `msg/cache/resource` 用 junction 指回真实账号（媒体只读）；
-  5. 生成视频/图片/语音媒体映射（补 `weflow-cli` JSON 里缺失的 video md5；语音 SILK→WAV；V2 视频自动解码）；
-  6. 调用标准 `wechat-export.mjs`，产出同样的 HTML/Markdown/JSONL/media 包。
+  5. 生成视频/图片/语音媒体映射（补导出 JSON 里缺失的 video md5；语音 SILK→WAV；V2 视频自动解码）；
+  6. 调用标准 `wechat-export.mjs`，默认由原生后端读取 `work/`，产出同样的 HTML/Markdown/JSONL/media 包；`--legacy-weflow` 时仍由 `weflow-cli` 读取 sandbox。
 
-**前置：** 用户必须明确授权使用该 MIT 上游来读取本机微信数据。默认使用内置 vendor，不需要 clone；更新/对照上游时可 `--tool-dir <外部目录>`。
+**前置：** 用户必须明确授权使用该 MIT 上游来读取本机微信数据。默认使用内置 vendor，不需要 clone `wechat-exporter`；更新/对照上游时可 `--tool-dir <外部目录>`。**4.1/4.2 默认都已不依赖 `weflow-cli`；只有 `--legacy-weflow` 使用。**
 
 ```bash
 node scripts/wechat42-export.mjs setup \
@@ -121,14 +124,14 @@ python -m pip install silk-python
 
 `pilk` 在 Windows 上需要 MSVC 编译，不作为首选。语音数据在 `media_*.db` 的 `VoiceInfo` 表，**不一定在 media_0.db**。
 
-**4.1 加密库语音：** 用 `wechat41-export.mjs`，它会自动生成语音映射再调用标准导出：
+**4.1 加密库：** 用 `wechat41-export.mjs`，默认走原生路径（`wechat41-decrypt.py` 解密到独立 `work/`，再走 native backend；语音/表情/视频/文件由原生 `--media` 处理）：
 
 ```bash
 node scripts/wechat41-export.mjs --target "<群ID/wxid>" --date 2026-11-13 --types all
 ```
 
-它默认从 `npm root -g` 找 `weflow-cli/scripts`，使用 `~/.weflow-cli/config.json`；也可用 `--weflow-cli-dir` / `--config` 指定。  
-手动方式（调试/自定义）仍然可用：
+原生路径需要 `sqlcipher3`（`python -m pip install sqlcipher3-wheels`），配置文件默认 `~/.weflow-cli/config.json`，可用 `--config` 指定。  
+`--legacy-weflow` 可回退到旧的 weflow-cli 语音映射路径。手动方式（legacy 调试/自定义）：
 
 ```bash
 python scripts/wechat41-voice-map.py \
@@ -170,7 +173,7 @@ node scripts/wechat42-export.mjs --target "<群ID>" --days 7 --no-sticker-map
 
 ## 当前范围与暂不包含
 
-**已包含**：文字、图片、传输文件、视频、语音音频（4.2 自动；4.1 用 `wechat41-export.mjs`）、表情（内置表情码渲染 + 自定义表情包解密导出）、文章链接、公众号批量（`--all-official`）、V2 加密视频解码；按时间/群/个人；4.1 及以下 + 4.2 后端（核心已 vendor）；`doctor` / `check-updates`；HTML/Markdown/JSONL/媒体包。
+**已包含**：文字、图片、传输文件、视频、语音音频、表情（内置表情码渲染 + 自定义表情包解密导出）、文章链接、公众号批量（`--all-official`）、V2 加密视频解码；按时间/群/个人；4.1/4.2 原生后端（`wechat41-decrypt.py` / `native-backend.py`），`--legacy-weflow` 可回退；`doctor` / `check-updates`；HTML/Markdown/JSONL/媒体包。
 
 **暂不包含**（记录在 `BACKLOG.md`，后续再决定）：
 
@@ -178,9 +181,8 @@ node scripts/wechat42-export.mjs --target "<群ID>" --days 7 --no-sticker-map
 - 微信收藏（已记录，暂不实现）
 - 朋友圈
 - 公众号文章正文抓取
-- 4.1 语音自动映射的真机验证（`wechat41-export.mjs` 已实现，待 4.1 数据验证）
+- 4.1 真机数据验证（原生路径已通过合成 SQLCipher 测试，本机无 4.1 数据）
 - 语音转写（已记录，暂不实现）
-- 运行时完全脱离 `weflow-cli`（Level 2；Level 1 vendor 已完成）
 - 真实 V2 视频 / 公众号链接 canary（本机无样本，合成测试已覆盖 V2）
 
 ## 后续微信版本升级参考（先读这里，少走弯路）
@@ -222,13 +224,14 @@ node scripts/wechat42-export.mjs --target "<群ID>" --days 7 --no-sticker-map
 在开始前先确认：
 
 - Node.js **22.13+**
-- Python **3.10+**（图片/文件抽取需要；只导出文字和视频不需要）
+- Python **3.10+**（原生读取/媒体都需要）
   - 如果 `python --version` 打开 Microsoft Store，说明命中的是“应用执行别名”；请安装 python.org 的 Python，并在“管理应用执行别名”里关掉 python/python3 的商店别名。
-  - **语音导出（4.2/4.1 需要）**：`python -m pip install silk-python`（`pysilk` 预编译 wheel）；`pilk` 在 Windows 上需要 MSVC，不作为首选。
-  - **表情包导出（需要）**：`python -m pip install imageio-ffmpeg`（微信 `wxgf` 容器是 H.265 裸流，要 ffmpeg 转码）；`cryptography` 用于 AES 解密。
+  - **4.1 原生解密**：`python -m pip install sqlcipher3-wheels`。
+  - **语音导出（4.2/4.1）**：`python -m pip install silk-python`（`pysilk` 预编译 wheel）；`pilk` 在 Windows 上需要 MSVC，不作为首选。
+  - **表情包导出**：`python -m pip install imageio-ffmpeg`（微信 `wxgf` 容器是 H.265 裸流，要 ffmpeg 转码）；`cryptography` 用于 AES 解密。
 - 微信桌面客户端已安装并登录
   - **表情包解密需要微信正在运行**（seed 在进程内存里），除非已用 `--sticker-seed` 指定或配置了 `emoticonSeed`。
-- `weflow-cli` 已安装并完成初始化
+- `weflow-cli` **可选**：只有 `--legacy-weflow` 回退/对照需要；4.1/4.2 默认原生后端不需要。
 
 一次性安装：
 

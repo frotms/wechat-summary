@@ -110,6 +110,7 @@ def main():
     ap.add_argument("--sandbox-dir", required=True)
     ap.add_argument("--home-dir", required=True, help="sandbox HOME（放 .weflow-cli/config.json）")
     ap.add_argument("--venv-python", default="", help="weflow-cli 用的 Python 解释器路径")
+    ap.add_argument("--no-sandbox", action="store_true", help="只解密到 work/，不重建 sandbox（Level 2 原生导出）")
     ap.add_argument("--run-check", action="store_true", help="构造后运行 weflow-cli sessions")
     args = ap.parse_args()
 
@@ -124,8 +125,11 @@ def main():
     # home may live inside the WeChat account directory.
     for label, path in (("明文工作目录", work), ("sandbox", sandbox), ("sandbox home", home)):
         assert_outside(account_root, path, label)
-    db_out.mkdir(parents=True, exist_ok=True)
-    work.mkdir(parents=True, exist_ok=True)
+    if args.no_sandbox:
+        work.mkdir(parents=True, exist_ok=True)
+    else:
+        db_out.mkdir(parents=True, exist_ok=True)
+        work.mkdir(parents=True, exist_ok=True)
 
     keys, meta = extract_keys(str(data_root))
     if not keys:
@@ -135,6 +139,18 @@ def main():
     print(f"keys: {len(keys)} ({meta.get('mode')})", file=sys.stderr)
     result = decrypt_all(str(data_root), str(work), keys,
                          progress=lambda p: print(f"  decrypt {p}%", file=sys.stderr, flush=True))
+
+    if args.no_sandbox:
+        print(json.dumps({
+            "success": True,
+            "mode": "native-only",
+            "keys": {"total": len(keys), "mode": meta.get("mode")},
+            "decrypt": {"ok": result.get("ok"), "failed": result.get("failed"), "total": result.get("total")},
+            "work": str(work),
+            "sandbox": None,
+            "home": None,
+        }, ensure_ascii=False, indent=2))
+        return 0
 
     key = secrets.token_hex(32)
     salt = secrets.token_hex(16)

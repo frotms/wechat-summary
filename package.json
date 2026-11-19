@@ -1,6 +1,6 @@
 {
   "name": "wechat-export-skill",
-  "version": "1.8.0",
+  "version": "1.10.0",
   "private": true,
   "description": "Claude Code skill: export local WeChat chat history (text, images, files, videos) by time, group or person.",
   "type": "module",

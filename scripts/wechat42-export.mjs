@@ -34,6 +34,7 @@ const STICKER_MAP = join(HERE, 'wechat-sticker-map.py')
 const STICKER_SEED = join(HERE, 'wechat-sticker-seed.py')
 const REVOKE_MAP = join(HERE, 'wechat-revoke-map.py')
 const AUDIT = join(HERE, 'wechat-audit.py')
+const NATIVE_WEFLOW = join(HERE, 'native-weflow.mjs')
 const SEARCH = join(HERE, 'wechat42-search.py')
 const VENDOR = join(HERE, 'vendor', 'wechat42')
 const VENDOR_COMMIT = 'cc718ef14fd815c9d04c2035b53cee0ee0539e36'
@@ -60,6 +61,8 @@ setup:
   --base-dir <目录>        4.2 工作根目录（默认 ~/.wechat-export/wechat42，或已有配置）
   --venv-python <路径>     可选；默认 ~/.weflow-cli/venv/Scripts/python.exe
   --refresh                重建 sandbox
+  --native-only            只解密到 work/，不重建 sandbox（默认）
+  --with-sandbox           同时生成 sandbox（--legacy-weflow 用）
 
 export:
   所有参数原样传给 scripts/wechat-export.mjs；额外支持：
@@ -69,6 +72,7 @@ export:
   --sticker-seed <值>      表情包解密种子（缺省自动探测：配置或微信进程内存）
   --no-revoke-map          不生成撤回记录映射
   --no-audit               导出后不跑完整性校验
+  --legacy-weflow          回退到 weflow-cli 读取/导出（Level 2 对照用）
 
 clean:
   删除 sandbox/明文 work/home（含 sandbox 密钥配置），保留已导出的结果。
@@ -121,10 +125,13 @@ function parseFlags(args) {
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i]
     if (token === '--refresh') { values.refresh = true; continue }
+    if (token === '--native-only') { values.nativeOnly = true; continue }
+    if (token === '--with-sandbox') { values.withSandbox = true; continue }
     if (token === '--no-media-map') { values.noMediaMap = true; continue }
     if (token === '--no-sticker-map') { values.noStickerMap = true; continue }
     if (token === '--no-revoke-map') { values.noRevokeMap = true; continue }
     if (token === '--no-audit') { values.noAudit = true; continue }
+    if (token === '--legacy-weflow') { values.legacyWeflow = true; continue }
     if (token === '--use-vendor') { values.useVendor = true; continue }
     if (['--tool-dir', '--account-root', '--base-dir', '--venv-python', '--config', '--sticker-seed'].includes(token)) {
       values[token.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = args[++i]
@@ -196,6 +203,9 @@ function runSetup(values, options = {}) {
   out(`配置: ${CONFIG_PATH}`)
   out(`上游: ${config.upstreamCommit || '未知'}`)
   out('构建 sandbox（提取密钥 → 解密 → 重新加密）...')
+  const nativeOnly = options.nativeOnly !== undefined
+    ? Boolean(options.nativeOnly)
+    : Boolean(values.nativeOnly || !values.withSandbox)
   const sandboxArgs = [
     SANDBOX,
     '--data-root', config.dataRoot,
@@ -205,12 +215,13 @@ function runSetup(values, options = {}) {
     '--home-dir', homeDir,
     '--venv-python', venvPython,
   ]
+  if (nativeOnly) sandboxArgs.push('--no-sandbox')
   if (toolDir) sandboxArgs.push('--tool-dir', toolDir)
   run(venvPython, sandboxArgs, {
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
     stdoutToStderr: Boolean(options.stderr),
   })
-  out('✓ sandbox 就绪')
+  out(nativeOnly ? '✓ work/ 就绪（native-only，未生成 sandbox）' : '✓ sandbox 就绪')
   out(`下一步: node scripts/wechat42-export.mjs --target "群名/人名" --days 7`)
 }
 
@@ -250,6 +261,14 @@ function sandboxEnv(config) {
   env.PATH = venvBin + delimiter + env.PATH
   env.PYTHONIOENCODING = 'utf-8'
   env.PYTHONUTF8 = '1'
+  // Level 2: the native shim reads these instead of weflow-cli. In
+  // native-only setups there is no sandbox config, so fall back to the 4.2
+  // config file (it carries workDir/accountRoot).
+  const sandboxCfg = sandboxConfigPath(config)
+  env.WEFLOW_NATIVE_CONFIG = existsSync(sandboxCfg) ? sandboxCfg : CONFIG_PATH
+  env.WEFLOW_NATIVE_WORK = config.workDir
+  env.WEFLOW_NATIVE_ACCOUNT = config.accountRoot
+  env.WEFLOW_NATIVE_PYTHON = config.venvPython
   return env
 }
 
@@ -425,16 +444,22 @@ function runExport(values, args) {
     fail('baseDir 位于微信账号目录内（只读约束）；用 setup --base-dir 改到别处', 2)
   }
   const dryRun = args.includes('--dry-run')
-  if (values.refresh || !existsSync(sandboxConfigPath(config))) {
-    runSetup({ ...values, toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir }, { stderr: true })
+  const nativeDefault = !values.legacyWeflow
+  if (values.refresh) {
+    runSetup({ ...values, toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
+      { stderr: true, nativeOnly: nativeDefault })
+  } else if (!existsSync(sandboxConfigPath(config)) && (!nativeDefault || !existsSync(config.workDir))) {
+    runSetup({ ...values, toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
+      { stderr: true, nativeOnly: nativeDefault })
   }
   // The plaintext work dir may have been removed by `clean`. Media/revoke map
   // generation needs it; rebuild on demand (normal exports can use the sandbox
   // without it). Dry-run skips the maps entirely.
   const needWork = !dryRun && (!values.noMediaMap || !values.noRevokeMap)
   if (needWork && !existsSync(config.workDir)) {
-    console.error('明文 work/ 不存在，重建 sandbox 以生成媒体/撤回映射...')
-    runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir }, { stderr: true })
+    console.error('明文 work/ 不存在，重建 work/ ...')
+    runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
+      { stderr: true, nativeOnly: nativeDefault })
   }
 
   const realHome = process.env.USERPROFILE || homedir()
@@ -443,12 +468,17 @@ function runExport(values, args) {
   const output = join(realHome, '.wechat-export', `${nowStamp()}-wechat42`)
   const forward = [...args]
   if (!hasOutput) forward.push('--output', output)
+  // Level 2 default: a native shim with the same command surface as
+  // weflow-cli. `--legacy-weflow` keeps the old path for comparison.
+  if (!values.legacyWeflow && !forward.includes('--weflow')) {
+    forward.push('--weflow', NATIVE_WEFLOW)
+  }
 
   let mediaMapPath = null
   let revokeMapPath = null
   const wantStickers = !values.noStickerMap && !values.noMediaMap
   if (!dryRun && (!values.noMediaMap || !values.noRevokeMap)) {
-    ensurePythonCache(config)
+    if (!nativeDefault) ensurePythonCache(config)
     const plan = dryRunTargets(config, forward)
     if (plan?.targets?.length) {
       if (!values.noMediaMap) {
@@ -572,8 +602,9 @@ function runSearch(values) {
   const config = readConfig()
   if (!config) fail('还没有配置 4.2 后端；先运行 setup', 3)
   if (!existsSync(config.workDir)) {
-    console.error('明文 work/ 已清理，重建 sandbox 以支持搜索...')
-    runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir }, { stderr: true })
+    console.error('明文 work/ 已清理，重建 work/ 以支持搜索...')
+    runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
+      { stderr: true, nativeOnly: true })
   }
   const query = values.query
   if (!query) fail('search 需要 --query <关键词>')
@@ -633,6 +664,8 @@ function runStatus() {
   if (!config) { console.log('未配置 4.2 后端'); return }
   console.log(JSON.stringify({
     config: CONFIG_PATH,
+    backend: 'native (4.2)',
+    nativeBackend: existsSync(NATIVE_WEFLOW),
     toolDir: config.toolDir || '(vendor)',
     accountRoot: config.accountRoot,
     baseDir: config.baseDir,
@@ -665,28 +698,30 @@ function runDoctor() {
   let check = null
   let sessions = null
   try {
-    const res = run(process.execPath, [MAIN, '--check', '--json'], { env, capture: true, timeoutMs: 180_000 })
+    const res = run(process.execPath, [MAIN, '--check', '--json', '--weflow', NATIVE_WEFLOW], { env, capture: true, timeoutMs: 180_000 })
     check = JSON.parse(res.stdout)
   } catch (error) {
     check = { error: String(error?.message || error) }
   }
   try {
-    const res = run(process.execPath, [MAIN, '--list', '--json'], { env, capture: true, timeoutMs: 180_000 })
+    const res = run(process.execPath, [MAIN, '--list', '--json', '--weflow', NATIVE_WEFLOW], { env, capture: true, timeoutMs: 180_000 })
     sessions = JSON.parse(res.stdout)
   } catch (error) {
     sessions = { error: String(error?.message || error) }
   }
 
   const ready = Boolean(
-    checks.toolDir && checks.sandboxConfig && checks.venvPython
+    checks.toolDir && checks.venvPython
+    && (checks.sandboxConfig || checks.workDir)
     && check?.ready === true && sessions?.success === true,
   )
   const result = {
     success: ready,
     readOnly: {
       enforced: true,
-      weflowCommands: ['check', 'sessions', 'contacts', 'media', 'export'],
-      exportFormats: ['json', 'md'],
+      backend: 'native (4.2)',
+      commands: ['check', 'sessions', 'contacts', 'export'],
+      exportFormats: ['json'],
       forbidden: ['send', 'forward', 'delete', 'edit', 'revoke', 'config', 'fav', 'assistant'],
       writes: ['导出目录', '临时 work/sandbox/home（均在微信账号目录之外）'],
     },

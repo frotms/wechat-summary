@@ -200,6 +200,7 @@ async function buildRecord(message, options) {
     const candidates = options.videoCandidates(message)
     let hit = null
     if (mapped?.media) hit = { file: mapped.media, key: mapped.video_md5 || candidates[0] || '' }
+    else if (manifest?.kind === 'video' && source) hit = { file: source, key: manifest.md5 || candidates[0] || '' }
     else hit = resolveVideo(candidates, videoIndex)
     if (hit) {
       const ext = videoExtension(hit.file)
@@ -249,7 +250,7 @@ async function buildRecord(message, options) {
       }
     }
   } else if (classified.type === 'voice') {
-    const voiceSource = mapped?.media || ''
+    const voiceSource = mapped?.media || (manifest?.kind === 'voice' && source ? source : '')
     if (voiceSource) {
       const linked = await options.linkMedia(
         voiceSource,
@@ -272,7 +273,7 @@ async function buildRecord(message, options) {
   } else if (classified.type === 'emoji') {
     // A sticker is either a media-map entry (4.2 sticker map: the decrypted
     // PNG/GIF) or weflow's own extracted image for the 4.1 path.
-    const stickerSource = mapped?.media || (manifest?.kind === 'image' ? source : '')
+    const stickerSource = mapped?.media || ((manifest?.kind === 'image' || manifest?.kind === 'emoji' || manifest?.kind === 'sticker') ? source : '')
     if (stickerSource) {
       const ext = extname(stickerSource) || '.png'
       // Name it after the sticker id when known: the same sticker is often

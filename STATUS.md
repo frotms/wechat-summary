@@ -1,8 +1,8 @@
 # 当前状态与待办
 
-> 版本：1.8.0（2026-11-18）  
+> 版本：1.10.0（2026-11-18）  
 > 验证环境：Windows 10 + 微信桌面版 4.2.0.13  
-> 详细设计见 `DESIGN.md`；已记录但暂不实现的需求见 `BACKLOG.md`。
+> 详细设计见 `DESIGN.md`；按优先级排列的待办见 `TODO.md`；已记录但暂不实现的需求见 `BACKLOG.md`。
 
 ## 一、当前功能
 
@@ -20,10 +20,11 @@
 | V2 加密视频 | ✅ | `lib/v2_decode.py`，4.2 媒体映射自动尝试 |
 | 完整性校验 | ✅ | 数据库行数 = 原始 JSON = 导出 + 按类型跳过；`audit.json` |
 | 只读硬约束 | ✅ | weflow-cli 命令白名单 + 输出路径保护；不写/不转发/不增删改 |
-| 4.2 后端 | ✅ | 内置 vendor（wechat-exporter MIT）+ sandbox 重加密 |
-| 4.1 后端 | ⚠️ 代码路径已实现 | 语音/表情/撤回/audit 均无 4.1 真机数据验证 |
+| 4.2 后端 | ✅ | 内置 vendor（wechat-exporter MIT）+ sandbox；默认 `native-backend.py` 读取 `work/`，4.2 导出不再依赖 `weflow-cli`（`--legacy-weflow` 可回退） |
+| 4.1 后端 | ✅ 原生（合成测试） | `wechat41-decrypt.py` → `work/` → native backend；本机无 4.1 真机数据，仅有合成 SQLCipher 测试 |
+| 脱离 `weflow-cli` | ✅ 4.1/4.2 原生 | `native-backend.py` + `native-weflow.mjs`；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
-| 测试 | ✅ | 47 项 Node + 25 项 Python |
+| 测试 | ✅ | 47 项 Node + 29 项 Python |
 
 ### 本机验证基线（微信 4.2.0.13）
 
@@ -33,11 +34,13 @@
 - 2026-11-02：表情 21 条，18 条解密成功（PNG 3 / GIF 15）
 - 2026-11-17：批量撤回 2 条，2/2 匹配原消息
 - 2026-10-29：完整性校验 557 = 557 = 557；`--types text` 时 441 + 跳过 116 = 557
+- 2026-11-18：Level 2 原生 4.2 实测：文字 9/9、图片 2/2、文件 3/3、语音 4/4、视频 1/1；audit 通过
 
 ## 二、已知限制
 
 1. **普通单条撤回**：本地通常只剩 `sysmsg type="revokemsg"` 提示，没有 `newmsgid`，原内容一般拿不到；`revokemessage` 表本机 0 行，未验证。
 2. **批量撤回**：依赖原消息行仍在；原行被删除则无法恢复。
+3. **`weflow-cli` 依赖**：4.1/4.2 默认都走原生后端，不再需要 `weflow-cli`；只有 `--legacy-weflow` 回退时才用。
 3. **实时库一致性**：`audit` 在导出后重新查库，时间范围含今天且导出期间有新消息时可能误报。
 4. **4.1 全链路**：语音、表情、撤回、audit 只有代码，无真机验证。
 5. **V2/HEVC 图片**：V2 视频有合成测试；图片侧依赖 weflow-cli，未专门验证。
@@ -69,6 +72,9 @@
 
 - [x] 根 LICENSE 统一为 MIT（2026-11-18）。
 - [x] 清理误生成的仓库内空目录（2026-11-18）。
+- [x] **Level 2（4.2）**：`native-backend.py` + `native-weflow.mjs`，4.2 导出不再调用 `weflow-cli`；`--legacy-weflow` 保留对照。
+- [x] **Level 2（4.1）**：`wechat41-decrypt.py` + `lib/v41db.py`，SQLCipher → `work/` → native backend；合成 SQLCipher 测试通过，真机待验证。
+- [x] **native-only setup**：4.2 `setup` 默认只生成 `work/`，`--with-sandbox` 才生成 sandbox。
 - [ ] 首次提交并跑 GitHub Actions。
 - [ ] 依赖清单与一键安装；4.1 版 `doctor`。
 - [ ] 跨平台验证（macOS/Linux、微信 3.x）。
@@ -87,7 +93,7 @@
 
 ```bash
 npm test                  # 47 项 Node 测试
-npm run test:py           # 25 项 Python 测试
+npm run test:py           # 29 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs audit --output "<导出目录>"

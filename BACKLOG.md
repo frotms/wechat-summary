@@ -1,7 +1,7 @@
 # 需求与待办记录
 
 > 本文件记录“已完成 / 已记录但暂不实现 / 明确不包含”，避免后续把范围混在一起。  
-> 当前功能、已知限制与按优先级排列的待办见 `STATUS.md`。
+> 当前功能、已知限制与按优先级排列的待办见 `STATUS.md` / `TODO.md`。
 
 ## 一、当前已完成（当前 skill 范围）
 
@@ -23,7 +23,7 @@
 | REQ-016a | 语音音频导出（4.2 自动 / 4.1 wrapper） | ✅ | SILK→WAV（`pysilk`），`media/voice/` + `<audio>`；4.1 用 `wechat41-export.mjs` |
 | REQ-015 | 文章链接/公众号 | ✅ 链接 fallback + `--all-official` | 正文抓取仍待定 |
 | REQ-018 | doctor / compat / check-updates | ✅ | doctor + compat.json + check-updates |
-| REQ-017 | Level 1 vendor / Level 2 脱离 | ✅ Level 1；⏸ Level 2 | `scripts/vendor/wechat42/` 已内置；weflow-cli 仍是读取层 |
+| REQ-017 | Level 1 vendor / Level 2 脱离 | ✅ Level 1；✅ Level 2（4.1/4.2） | 默认 `native-backend.py`；`--legacy-weflow` 回退 |
 | REQ-019 | V2 加密视频解码 | ✅ | `lib/v2_decode.py`、`v2-decode.py`、4.2 media map 自动尝试 |
 | REQ-020 | 表情 | ✅ 内置表情码 + 自定义表情包 | 见下文 |
 | REQ-014 | 收藏导出 | ⏸ 已记录，暂不实现 | 见下文 |
@@ -38,7 +38,7 @@
 - 2026-11-03：33 条，文字 25、图片 6（找到 6）、文件 1（找到 1）、视频 1（找到 1，含封面）；
 - 2026-11-13（SEx）：47 条，文字 43、语音 4（找到 4，WAV）；
 - 2026-11-02（某群）：21 条表情消息，18 条解密成功（PNG 3 / GIF 15），3 条本机无缓存；
-- `npm test`：47 项通过；`npm run test:py`：25 项通过。
+- `npm test`：47 项通过；`npm run test:py`：29 项通过。
 
 ## 二、已记录、暂不实现
 
@@ -80,8 +80,12 @@
 
 ### REQ-017 Level 1 / Level 2
 
-- Level 1：已完成。`keys.py/decrypt.py/message_parser.py/export.py/media.py/proc.py` vendor 到 `scripts/vendor/wechat42/`，默认不再依赖外部 `--tool-dir`。
-- Level 2：待做。用自研 `dbread/parser/media` 替换 `weflow-cli`，运行时只依赖 Node/Python + `sqlcipher3`/WCDB。
+- Level 1：已完成。`keys.py/decrypt.py/message_parser.py/export.py/media.py/proc.py` vendor 到 `scripts/vendor/wechat42/`，默认不再依赖外部 `--tool-dir` / `wechat-exporter` clone。
+  - **边界**：Level 1 不包含 `weflow-cli`。
+- Level 2：**4.1/4.2 已完成（2026-11-18）**。`scripts/native-backend.py` + `scripts/native-weflow.mjs` 直接读取 `work/`，实现 `check/sessions/contacts/export json --media`；4.1 由 `wechat41-decrypt.py` 先解密到 `work/`。默认不再调用 `weflow-cli`，`--legacy-weflow` 可回退对照。
+  - 4.2 实测：文字 9/9、图片 2/2、文件 3/3、语音 4/4、视频 1/1；audit 通过。
+- Level 2（4.1）：已完成原生路径。`wechat41-decrypt.py` 用 SQLCipher 把加密库解到独立 `work/`，再由 `native-backend.py` 读取；`wechat41-export.mjs` 默认走该路径，`--legacy-weflow` 回退。
+  - 合成 SQLCipher 测试通过（29 项 Python 测试含 4.1 用例）；本机无 4.1 真机数据，真机 canary 待补。
 - 需要 golden/canary 对比，不能零回归承诺。
 
 ### REQ-019 V2 加密视频
@@ -129,6 +133,7 @@
 
 ## 四、明确不包含
 
+- **GUI / Web 管理后台 / 可视化控制台 / 安装向导等工程化界面**（本仓库定位是 Claude Code Skill；导出 HTML 只是浏览产物）；
 - **写入、转发、新增、删除、编辑、撤回聊天内容**（见 REQ-021）；
 - 朋友圈（`sns.db`）导出；
 - 微信收藏（在 REQ-014 决策前不做）；

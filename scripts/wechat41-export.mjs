@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 /**
- * WeChat 4.1 (weflow-cli) export entry with automatic voice mapping.
+ * WeChat 4.1 export entry.
  *
- * 4.1's weflow-cli export only labels voice messages. This wrapper:
- *   1. resolves targets/time with wechat-export.mjs --dry-run
- *   2. runs wechat41-voice-map.py for each target (SILK -> WAV)
- *   3. runs the normal wechat-export.mjs with --media-map
+ * Default (Level 2): decrypt encrypted DBs to a plaintext work/ with
+ * wechat41-decrypt.py, then run the native backend. Voice/stickers/video/
+ * files are handled by native export --media.
  *
- * It uses the real ~/.weflow-cli/config.json (or --config), no sandbox.
+ * --legacy-weflow keeps the old weflow-cli voice-map path for comparison.
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -23,9 +22,11 @@ const STICKER_MAP = join(HERE, 'wechat-sticker-map.py')
 const STICKER_SEED = join(HERE, 'wechat-sticker-seed.py')
 const REVOKE_MAP = join(HERE, 'wechat-revoke-map.py')
 const AUDIT = join(HERE, 'wechat-audit.py')
+const DECRYPT41 = join(HERE, 'wechat41-decrypt.py')
+const NATIVE_WEFLOW = join(HERE, 'native-weflow.mjs')
 
 function usage() {
-  console.log(`WeChat 4.1 export (automatic voice map)
+  console.log(`WeChat 4.1 export (native default; --legacy-weflow fallback)
 
 用法:
   node scripts/wechat41-export.mjs [正常的 wechat-export 参数]
@@ -34,6 +35,7 @@ function usage() {
 额外选项:
   --weflow-cli-dir <scripts 目录>  默认从 npm root -g 查找 weflow-cli/scripts
   --config <config.json>           默认 ~/.weflow-cli/config.json
+  --legacy-weflow                  回退到旧 weflow-cli 读取/语音映射路径
   --no-voice-map                   跳过语音映射（只走 weflow-cli）
   --no-sticker-map                 跳过表情包映射（表情只保留文字标签）
   --sticker-seed <值>              表情包解密种子（缺省自动探测）
@@ -94,6 +96,7 @@ function parseFlags(args) {
     if (token === '--no-sticker-map') { values.noStickerMap = true; continue }
     if (token === '--no-revoke-map') { values.noRevokeMap = true; continue }
     if (token === '--no-audit') { values.noAudit = true; continue }
+    if (token === '--legacy-weflow') { values.legacyWeflow = true; continue }
     if (token === '--weflow-cli-dir' || token === '--config' || token === '--sticker-seed') {
       values[token.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = args[++i]
       continue
@@ -313,20 +316,168 @@ function runAudit(args) {
     fail(`未知的 audit 参数: ${token}`)
   }
   if (!output) fail('audit 需要 --output <导出目录>')
-  const configPath = resolve(join(homedir(), '.weflow-cli', 'config.json'))
-  if (!existsSync(configPath)) fail(`找不到 weflow-cli 配置: ${configPath}`, 3)
-  const scriptsDir = findScriptsDir()
   const python = findVenvPython()
-  const pythonArgs = [
-    AUDIT,
-    '--output', resolve(output),
-    '--weflow-cli-dir', scriptsDir,
-    '--config', configPath,
-  ]
+  const nativeWork = join(homedir(), '.wechat-export', 'wechat41', 'work')
+  let pythonArgs
+  if (existsSync(join(nativeWork, 'message'))) {
+    pythonArgs = [AUDIT, '--output', resolve(output), '--work-dir', nativeWork]
+  } else {
+    const configPath = resolve(join(homedir(), '.weflow-cli', 'config.json'))
+    if (!existsSync(configPath)) fail(`找不到 weflow-cli 配置: ${configPath}`, 3)
+    const scriptsDir = findScriptsDir()
+    pythonArgs = [
+      AUDIT,
+      '--output', resolve(output),
+      '--weflow-cli-dir', scriptsDir,
+      '--config', configPath,
+    ]
+  }
   if (json) pythonArgs.push('--json')
   const res = run(python, pythonArgs, {
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
   })
+  process.exit(res.status ?? 0)
+}
+
+function nativeEnv(configPath, workDir, accountRoot, python) {
+  return {
+    ...process.env,
+    WEFLOW_NATIVE_CONFIG: configPath,
+    WEFLOW_NATIVE_WORK: workDir,
+    WEFLOW_NATIVE_ACCOUNT: accountRoot,
+    WEFLOW_NATIVE_PYTHON: python,
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONUTF8: '1',
+  }
+}
+
+function decrypt41({ configPath, python, workDir }) {
+  console.error('4.1 原生后端：解密数据库到独立 work/ ...')
+  const res = run(python, [
+    DECRYPT41,
+    '--config', configPath,
+    '--work-dir', workDir,
+    '--json',
+  ], {
+    capture: true,
+    timeoutMs: 30 * 60_000,
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+  })
+  if (res.status !== 0) {
+    fail(`4.1 解密失败：${String(res.stderr || res.stdout || '').slice(-800)}`, 3)
+  }
+  try {
+    return JSON.parse(res.stdout)
+  } catch {
+    fail('4.1 解密输出不可解析', 3)
+  }
+}
+
+function nativeDryRun({ configPath, workDir, accountRoot, python, args }) {
+  const res = run(process.execPath, [
+    MAIN, ...args, '--dry-run', '--json',
+    '--weflow-config', configPath, '--weflow', NATIVE_WEFLOW,
+  ], {
+    capture: true,
+    timeoutMs: 300_000,
+    env: nativeEnv(configPath, workDir, accountRoot, python),
+  })
+  if (res.status !== 0) return null
+  try {
+    return JSON.parse(res.stdout)
+  } catch {
+    return null
+  }
+}
+
+function buildRevokeMapNative({ python, targets, time, baseDir, workDir }) {
+  const from = time?.date || time?.from || ''
+  const to = time?.date || time?.to || ''
+  const merged = {
+    schema: 'wechat-revoke-map-merged/v1', items: {}, orphans: [], sources: [],
+  }
+  for (const target of targets) {
+    const tmp = join(baseDir, `revoke-${target.id.replace(/[^A-Za-z0-9_-]/g, '_')}-${nowStamp()}.json`)
+    const res = run(python, [
+      REVOKE_MAP,
+      '--work-dir', workDir,
+      '--target', target.id,
+      '--from', from,
+      '--to', to,
+      '--out', tmp,
+    ], {
+      capture: true,
+      timeoutMs: 300_000,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    })
+    if (res.status !== 0) {
+      console.error(`  ! 撤回映射失败: ${target.name || target.id}`)
+      continue
+    }
+    try {
+      const data = JSON.parse(readFileSync(tmp, 'utf8'))
+      for (const [key, value] of Object.entries(data.items || {})) {
+        merged.items[key] = { ...value, target: target.id }
+      }
+      for (const orphan of data.orphans || []) {
+        merged.orphans.push({ ...orphan, target: target.id })
+      }
+      merged.sources.push({ target: target.id, counts: data.counts })
+      rmSync(tmp, { force: true })
+    } catch {
+      console.error(`  ! 撤回映射不可读: ${target.name || target.id}`)
+    }
+  }
+  if (!Object.keys(merged.items).length && !merged.orphans.length) return null
+  const out = join(baseDir, `revoke-map-${nowStamp()}.json`)
+  writeFileSync(out, JSON.stringify(merged, null, 2), 'utf8')
+  return out
+}
+
+function nativeMain(values, rest, configPath, python, baseDir) {
+  const workDir = join(baseDir, 'work')
+  const info = decrypt41({ configPath, python, workDir })
+  const accountRoot = info.accountRoot
+  if (!accountRoot) fail('4.1 解密结果缺少 accountRoot', 3)
+  console.error(`4.1 原生后端：${info.decrypt?.ok || 0}/${info.decrypt?.total || 0} 个库已解密`)
+
+  let revokeMap = null
+  const plan = nativeDryRun({ configPath, workDir, accountRoot, python, args: rest })
+  if (plan?.targets?.length && !values.noRevokeMap) {
+    revokeMap = buildRevokeMapNative({
+      python, targets: plan.targets, time: plan.time, baseDir, workDir,
+    })
+    if (revokeMap) console.error(`撤回映射: ${revokeMap}`)
+  }
+
+  const finalArgs = [
+    MAIN, ...rest,
+    '--weflow-config', configPath,
+    '--weflow', NATIVE_WEFLOW,
+  ]
+  if (revokeMap) finalArgs.push('--revoke-map', revokeMap)
+  const res = run(process.execPath, finalArgs, {
+    allowNonZero: true,
+    env: nativeEnv(configPath, workDir, accountRoot, python),
+  })
+  if (revokeMap) rmSync(revokeMap, { force: true })
+  if ((res.status ?? 0) === 0 || res.status === 5) {
+    if (!values.noAudit) {
+      const output = outputDirFromArgs(rest)
+      if (output) {
+        console.error('完整性校验（数据库 → 原始 JSON → 导出 JSONL）...')
+        const audit = run(python, [
+          AUDIT, '--output', resolve(output), '--work-dir', workDir,
+        ], {
+          env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+          capture: true,
+        })
+        if (audit.stdout) process.stderr.write(audit.stdout)
+        if (audit.stderr) process.stderr.write(audit.stderr)
+        if (audit.status !== 0) process.exit(audit.status ?? 5)
+      }
+    }
+  }
   process.exit(res.status ?? 0)
 }
 
@@ -337,10 +488,15 @@ function main() {
   const { values, rest } = parseFlags(argv)
   const configPath = resolve(values.config || join(homedir(), '.weflow-cli', 'config.json'))
   if (!existsSync(configPath)) fail(`找不到 weflow-cli 配置: ${configPath}`, 3)
-  const scriptsDir = findScriptsDir(values.weflowCliDir)
   const python = findVenvPython()
   const baseDir = join(homedir(), '.wechat-export', 'wechat41')
 
+  if (!values.legacyWeflow) {
+    nativeMain(values, rest, configPath, python, baseDir)
+    return
+  }
+
+  const scriptsDir = findScriptsDir(values.weflowCliDir)
   let mediaMap = null
   let revokeMap = null
   if (!values.noVoiceMap || !values.noStickerMap || !values.noRevokeMap) {

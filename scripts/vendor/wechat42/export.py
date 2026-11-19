@@ -299,7 +299,7 @@ class ChatStore:
                     conds.append('create_time < ?')
                     params.append(int(before_ts))
             where = ('where ' + ' and '.join(conds)) if conds else ''
-            sql = f'select local_id, local_type, real_sender_id, create_time, ' \
+            sql = f'select local_id, server_id, local_type, real_sender_id, create_time, ' \
                   f'message_content, packed_info_data from "{table}" {where} ' \
                   f'order by create_time desc, local_id desc'
             if limit:
@@ -313,7 +313,7 @@ class ChatStore:
         return out
 
     def _parse(self, chat, names, contacts, row):
-        local_id, ltype, sender_id, ctime, content_raw, packed = row
+        local_id, server_id, ltype, sender_id, ctime, content_raw, packed = row
         content = dec(content_raw)
         base, sub = split_local_type(ltype)
 
@@ -395,6 +395,7 @@ class ChatStore:
 
         return {
             'local_id': local_id,
+            'server_id': str(server_id or ''),
             'time': datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M:%S'),
             'ts': ctime,
             'type': TYPE_NAMES.get(base, f'type_{base}'),
@@ -403,11 +404,13 @@ class ChatStore:
             'kind': kind,
             'sender': display,
             'sender_wxid': sender,
+            'is_send': bool(sender and self.my_wxid and sender == self.my_wxid),
             'text': text,
             'media': media,
             'poster': poster,
             'video_md5': video_md5,
             'image_md5': image_md5,
+            'raw_content': content,
             'content': parsed,
         }
 

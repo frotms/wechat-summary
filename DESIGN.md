@@ -82,12 +82,18 @@ wechat-export skill（目标/时间/类型编排 + bundle）
 
 关键决策：
 
-- **Level 1 已完成**：`keys.py/decrypt.py/message_parser.py/export.py/media.py/proc.py` 已 vendor 到 `scripts/vendor/wechat42/`（MIT，commit `cc718ef`）；默认不再依赖外部 `--tool-dir`。`weflow-cli` 仍是读取/导出层，Level 2 待做。
+- **Level 1 已完成**：`keys.py/decrypt.py/message_parser.py/export.py/media.py/proc.py` 已 vendor 到 `scripts/vendor/wechat42/`（MIT，commit `cc718ef`）；默认不再依赖外部 `--tool-dir` / `wechat-exporter` clone。
+  - **边界**：Level 1 不包含 `weflow-cli`。4.1/4.2 的 Level 2 原生后端均已完成（`wechat41-decrypt.py` / `native-backend.py`），默认不再走 `weflow-cli`；`--legacy-weflow` 才构造 sandbox/走旧路径。
 - **为什么重新加密**：weflow-cli 用 `PRAGMA key = "x'<key><salt>'"` 打开库；只要有同一对 raw key+salt，所有分片都能读。这样不需要恢复共享 passphrase，也不需要改 weflow-cli。
 - **为什么统一 salt**：每库独立 salt 会让 weflow-cli 的 fallback key/salt 只能开主库；统一 raw key+salt 后，`derive_database_key` 在无 passphrase 时对所有分片返回同一对，正好匹配。
 - **媒体为什么用 junction**：重加密只改 DB，不动 123GB 的 `msg`；sandbox 的 `msg/cache/resource` 指向真实账号，weflow-cli 的媒体定位逻辑原样复用。
 - **视频为什么要 media map**：weflow-cli 的 JSON 在某些 4.2 消息上 `rawContent` 为空，拿不到 video md5；`wechat-exporter` 读 `packed_info_data` 能拿到。`wechat42-media-map.py` 输出 `local_id:ts → media/video_md5`，Node 端用 `--media-map` 补视频（以及缺图的图片）。
 - **`md --date` 的绕过**：weflow-cli 1.21.17 的 `export md --date` 会先转成内部 from/to，再被自己的“md 不支持 from/to”检查拒绝。改用 `export json --media --date` 抽资源到 `_asset-runs/<date>/`，再合并 manifest（`readMediaManifest`）。
+- **Level 2（4.2）已接入**：`native-backend.py` 用 vendor `ChatStore` 直接读 `work/`，实现 `check/sessions/contacts/export json --media`；`native-weflow.mjs` 把它包装成 weflow-cli 兼容命令。`wechat42-export.mjs` 默认传 `--weflow native-weflow.mjs`，4.2 导出不再调用 `weflow-cli`；`--legacy-weflow` 保留旧路径做对照。
+  - 原生 `--media` 处理图片/文件/视频/语音/表情：图片解密、文件索引、视频索引、SILK→WAV、表情缓存解密；`wechat42-media-map.py`/`wechat-sticker-map.py` 仍作为回退/补充（V2 视频、媒体 md5 映射）。
+  - 4.2 实测：文字 9/9、图片 2/2、文件 3/3、语音 4/4、视频 1/1；audit 通过。
+- **Level 2（4.1）已接入**：`wechat41-decrypt.py` 用 `sqlcipher3` + `lib/v41db.py` 把加密库导出到独立 `work/`，`wechat41-export.mjs` 默认再走同一个 `native-backend.py`；`--legacy-weflow` 回退旧的 weflow-cli 语音映射路径。
+  - 合成 SQLCipher 测试通过；本机无 4.1 真机数据，真机 canary 待补。
 
 本机实测（微信 4.2.0.13，`wechat-exporter` commit `cc718ef...`）：
 
@@ -569,7 +575,7 @@ revokebatchmessage(local_id, batch_id, msg_unique_id, session_name,
 
 ## 10. 测试矩阵
 
-`npm test` 当前 47 项 Node 测试 + 25 项 Python 测试，全部通过。
+`npm test` 当前 47 项 Node 测试 + 29 项 Python 测试，全部通过。
 
 | 编号 | 测试 | 覆盖 |
 | --- | --- | --- |
@@ -623,6 +629,11 @@ revokebatchmessage(local_id, batch_id, msg_unique_id, session_name,
 | TC-048 | 批量撤回映射 | 合成 `revokebatchmessage` + 原消息行 → `kind=batch` 匹配，`revokes.json` 含 messageId |
 | TC-049 | 单条撤回映射 | `revokemessage.svr_id` 匹配 `server_id` → `kind=single`；匹配不到进 `orphans` 且保留 `content` |
 | TC-050 | 撤回标记实测 | 2026-11-17 某群 2 条批量撤回：JSONL `revoked=true`、HTML 徽标、Markdown“（已撤回）”、`stats.revoked=2` |
+| TC-051 | 原生后端 sessions/contacts | 合成 work DB：`native-backend.py` 返回会话与联系人，字段符合 weflow 契约 |
+| TC-052 | 原生后端 export | 合成 work DB：导出 messages JSON 的 `localId/serverId/rawContent/parsedContent/isSend` 正确 |
+| TC-053 | 原生后端 4.2 实测 | `--weflow native-weflow.mjs`：文字 9/9、图片 2/2、文件 3/3、语音 4/4、视频 1/1；audit 通过 |
+| TC-054 | 4.1 原生解密 | 合成 SQLCipher DB：`wechat41-decrypt.py` 解到 `work/`，`native-backend.py` 导出 `serverId/rawContent` 正确 |
+| TC-055 | native-only setup | `setup` 默认只生成 `work/`（sandbox null）；导出/doctor 在无 sandbox 下通过 |
 
 端到端测试用 `tests/fixtures/fake-weflow.mjs` 模拟 `weflow-cli` 的 CLI 契约，并构造一个合成微信账号目录（`db_storage/message/message_0.db` + `msg/video/2026-01/<md5>.mp4`），因此无需真实微信数据即可回归。
 

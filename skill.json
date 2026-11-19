@@ -1,6 +1,6 @@
 {
   "name": "wechat-export",
-  "version": "1.8.0",
+  "version": "1.10.0",
   "category": "other/wechat",
   "source": "自建",
   "status": "draft",
@@ -9,6 +9,32 @@
   "createdAt": "2026-11-16",
   "updatedAt": "2026-11-18",
   "changelog": [
+    {
+      "version": "1.10.0",
+      "date": "2026-11-18",
+      "author": "chenxi liu",
+      "changes": [
+        "Level 2（4.1）：新增 wechat41-decrypt.py + lib/v41db.py，SQLCipher 解密到独立 work/，再走 native backend；--legacy-weflow 回退",
+        "原生 export --media 补齐视频/语音/表情：视频索引复制、SILK→WAV、表情缓存解密，bundle 支持 manifest video/voice/sticker",
+        "4.2 setup 默认 native-only（只生成 work/，不建 sandbox）；--with-sandbox 保留给 legacy/对照",
+        "4.1/4.2 wrapper 默认均不调用 weflow-cli；weflow-cli 仅 --legacy-weflow 使用",
+        "修复空时间范围 audit 误报；doctor 支持无 sandbox 的 native-only 状态",
+        "测试增至 47 项 Node + 29 项 Python（新增 4.1 合成 SQLCipher 与 native-only 用例）"
+      ]
+    },
+    {
+      "version": "1.9.0",
+      "date": "2026-11-18",
+      "author": "chenxi liu",
+      "changes": [
+        "Level 2（4.2）：新增 native-backend.py + native-weflow.mjs，直接读取 work/ 实现 check/sessions/contacts/export json --media",
+        "4.2 导出默认不再调用 weflow-cli；--legacy-weflow 保留旧路径对照",
+        "原生 export --media 支持图片/文件落盘；视频/语音/表情仍走现有映射",
+        "修正文档措辞：Level 1 只去掉外部 wechat-exporter clone，Level 2 才脱离 weflow-cli",
+        "实测 4.2：文字 9/9、图片 2/2、文件 3/3、语音 4/4、视频 1/1；audit 通过；doctor 原生检查通过",
+        "测试增至 47 项 Node + 28 项 Python（新增 native sessions/contacts/export/check 用例）"
+      ]
+    },
     {
       "version": "1.8.0",
       "date": "2026-11-18",
