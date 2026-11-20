@@ -181,6 +181,18 @@ export function classifyMessage(message) {
     if (!info) info = { isFile: true, title: '未命名文件', md5: '', bytes: undefined }
     return { type: 'file', file: info }
   }
+  // Quote and merged-forward appmsgs also mask to localType 49. They must be
+  // classified before the encoded-media/link heuristics below.
+  if (messageType === 'quote'
+      || (message?.quote && typeof message.quote === 'object' && message.quote.text)
+      || (localType === 49 && /^\[引用\]/.test(parsedText))) {
+    return { type: 'quote', file: null }
+  }
+  if (messageType === 'chat_history' || messageType === 'history'
+      || (Array.isArray(message?.records) && message.records.length > 0)
+      || /^\[(?:聊天记录|笔记)\]/.test(parsedText)) {
+    return { type: 'history', file: null }
+  }
   if (messageType === 'video' || localType === 43 || looksLikeVideo) return { type: 'video', file: null }
   if (encodedMedia && !hasAppLinkMetadata) return { type: 'image', file: null }
   if (messageType === 'image' || localType === 3 || looksLikeImage) return { type: 'image', file: null }
@@ -205,6 +217,7 @@ export const TYPE_LABELS = {
   emoji: '表情',
   location: '位置',
   link: '链接',
+  history: '聊天记录',
   card: '卡片',
   call: '通话',
   system: '系统',
@@ -232,8 +245,9 @@ export function buildText(message, classified, senderId = '') {
 
   switch (type) {
     case 'text':
-    case 'quote':
       return stripGroupPrefix(parsed || content, senderId)
+    case 'quote':
+      return stripGroupPrefix(message.reply || parsed || content, senderId)
     case 'image':
       return parsed || '[图片]'
     case 'video': {
@@ -251,9 +265,10 @@ export function buildText(message, classified, senderId = '') {
     case 'location':
       return parsed || '[位置]'
     case 'link':
-    case 'card': {
+    case 'card':
+    case 'history': {
       const link = parseLinkMeta(raw)
-      return parsed || link?.title || '[链接]'
+      return parsed || link?.title || (type === 'history' ? '[聊天记录]' : '[链接]')
     }
     case 'call':
       return parsed || '[语音通话]'

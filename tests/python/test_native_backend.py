@@ -107,6 +107,60 @@ class NativeBackendTest(unittest.TestCase):
             self.assertEqual(payload["messages"][0]["parsedContent"], "hello")
             self.assertEqual(payload["messages"][0]["isSend"], 0)
 
+    def test_export_quote_and_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work, _account, cfg = self.make_fixture(root)
+            table = "Msg_" + hashlib.md5(TARGET.encode()).hexdigest()
+            quote_xml = (
+                "<msg><appmsg><title>回复：你好</title><type>57</type>"
+                "<refermsg><displayname>张三</displayname><type>1</type>"
+                "<content>原来的消息</content></refermsg></appmsg></msg>"
+            )
+            history_xml = (
+                "<msg><appmsg><title>群聊的聊天记录</title><type>19</type>"
+                "<recorditem><![CDATA[<recordinfo><datalist>"
+                '<dataitem datatype="1"><sourcename>张三</sourcename>'
+                "<sourcetime>2026-01-05 10:00</sourcetime><datadesc>你好</datadesc></dataitem>"
+                '<dataitem datatype="8"><sourcename>李四</sourcename>'
+                "<sourcetime>2026-01-05 10:01</sourcetime><datatitle>报告.pdf</datatitle>"
+                "<datasize>1024</datasize></dataitem>"
+                "</datalist></recordinfo>]]></recorditem></appmsg></msg>"
+            )
+            conn = sqlite3.connect(work / "message" / "message_0.db")
+            conn.execute(
+                f'insert into "{table}" values (?, ?, ?, ?, ?, ?, ?)',
+                (2, "srv-2", (57 << 32) | 49, 1, TS + 10, quote_xml.encode("utf-8"), b""))
+            conn.execute(
+                f'insert into "{table}" values (?, ?, ?, ?, ?, ?, ?)',
+                (3, "srv-3", (19 << 32) | 49, 1, TS + 20, history_xml.encode("utf-8"), b""))
+            conn.commit()
+            conn.close()
+
+            out = root / "out"
+            res = self.run_native(
+                root, cfg, "export", TARGET, "json",
+                "--from", "2026-01-05", "--to", "2026-01-05",
+                "--output", str(out), "--limit", "0", "--contract", "weflow-v1",
+                "--non-interactive", "--json",
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            payload = json.loads((out / f"{TARGET}_messages.json").read_text(encoding="utf-8"))
+            by_id = {item["localId"]: item for item in payload["messages"]}
+
+            self.assertEqual(by_id[2]["messageType"], "quote")
+            self.assertEqual(by_id[2]["quote"]["sender"], "张三")
+            self.assertEqual(by_id[2]["quote"]["text"], "原来的消息")
+
+            self.assertEqual(by_id[3]["messageType"], "chat_history")
+            records = by_id[3]["records"]
+            self.assertEqual(len(records), 2)
+            self.assertEqual(records[0]["kind"], "text")
+            self.assertEqual(records[0]["sender"], "张三")
+            self.assertEqual(records[0]["text"], "你好")
+            self.assertEqual(records[1]["kind"], "file")
+            self.assertEqual(records[1]["text"], "报告.pdf")
+
     def test_check(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

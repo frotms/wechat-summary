@@ -96,6 +96,17 @@ function addMissing(record, kind, reason) {
   record.missing.push({ kind, reason })
 }
 
+function normalizeForwardRecord(item) {
+  const out = {}
+  for (const key of [
+    'datatype', 'kind', 'sender', 'time', 'text', 'title', 'size',
+    'md5', 'thumb_md5', 'image_md5', 'video_md5',
+  ]) {
+    if (item?.[key] !== undefined) out[key] = item[key]
+  }
+  return out
+}
+
 async function buildRecord(message, options) {
   const { target, contactMap, meLabel, includeRaw, mediaManifest, mediaMap, revokeMap, videoIndex, mediaState, ownWxid } = options
   const classified = classifyMessage(message)
@@ -132,6 +143,13 @@ async function buildRecord(message, options) {
     text,
     media: {},
     missing: [],
+  }
+  if (message.quote) record.quote = message.quote
+  if (message.reply) record.reply = message.reply
+  if (Array.isArray(message.records) && message.records.length) {
+    // Keep only stable fields; never leak absolute paths from the work tree.
+    record.records = message.records.map(normalizeForwardRecord)
+    if (message.isNote) record.isNote = true
   }
   if (includeRaw) record.rawContent = message.rawContent || message.content || ''
 

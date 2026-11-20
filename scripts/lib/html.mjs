@@ -110,6 +110,27 @@ function renderMissing(record) {
   }).join('')
 }
 
+function renderQuote(record) {
+  const quote = record.quote
+  if (!quote || !quote.text) return ''
+  const sender = quote.sender ? `引用 ${escapeHtml(quote.sender)}` : '引用'
+  return `<blockquote class="quote"><div class="quote-meta">${sender}</div>`
+    + `<div class="quote-text">${escapeHtml(renderFaces(quote.text))}</div></blockquote>`
+}
+
+function renderRecords(record) {
+  if (!Array.isArray(record.records) || !record.records.length) return ''
+  const rows = record.records.map((item) => {
+    const who = item.sender ? `<span class="rec-sender">${escapeHtml(item.sender)}</span>` : ''
+    const time = item.time ? `<span class="rec-time">${escapeHtml(item.time)}</span>` : ''
+    const text = `<span class="rec-text">${escapeHtml(item.text || '')}</span>`
+    return `<div class="rec-item">${who}${time}${text}</div>`
+  }).join('')
+  const title = record.isNote ? '笔记' : '聊天记录'
+  return `<details class="record"><summary>💬 ${title} · ${record.records.length} 条</summary>`
+    + `<div class="record-list">${rows}</div></details>`
+}
+
 function renderMessage(record) {
   if (record.type === 'system') {
     return `<div class="msg system" data-type="system" data-sender="${escapeHtml(record.sender)}" data-text="${escapeHtml(record.text.toLowerCase())}">`
@@ -118,7 +139,15 @@ function renderMessage(record) {
 
   const side = record.isMe ? 'me' : 'them'
   const senderName = record.isMe ? '我' : record.sender
-  const searchText = [record.text, record.fileName, record.link?.title, record.link?.url, record.revoked ? '已撤回' : '']
+  const searchText = [
+    record.text,
+    record.fileName,
+    record.link?.title,
+    record.link?.url,
+    record.quote?.text,
+    ...(record.records || []).map((item) => item.text),
+    record.revoked ? '已撤回' : '',
+  ]
     .filter(Boolean)
     .join(' ')
     .toLowerCase()
@@ -137,14 +166,14 @@ function renderMessage(record) {
     + `<div class="meta"><span class="sender">${escapeHtml(senderName)}</span>`
     + `${record.revoked ? '<span class="revoked-badge">已撤回</span>' : ''}`
     + `<time>${escapeHtml(shortTime(record.localTime))}</time></div>`
-    + `<div class="bubble">${showText ? `<div class="text">${escapeHtml(renderFaces(record.text))}</div>` : ''}${media}${missing}</div>`
+    + `<div class="bubble">${showText ? `<div class="text">${escapeHtml(renderFaces(record.text))}</div>` : ''}${renderQuote(record)}${renderRecords(record)}${media}${missing}</div>`
     + `</div></article>`
 }
 
 function typeChips(records) {
   const counts = {}
   for (const record of records) counts[record.type] = (counts[record.type] || 0) + 1
-  const order = ['text', 'image', 'file', 'video', 'voice', 'emoji', 'link', 'card', 'location', 'system', 'quote', 'other']
+  const order = ['text', 'image', 'file', 'video', 'voice', 'emoji', 'link', 'history', 'card', 'location', 'system', 'quote', 'other']
   const present = order.filter((type) => counts[type])
   const chips = [`<button class="chip active" data-filter-type="all">全部 <b>${records.length}</b></button>`]
   for (const type of present) {
@@ -313,6 +342,20 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 }
 .link-title { font-weight: 600; }
 .link-url { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.quote {
+  margin-top: 6px; padding: 6px 9px; border-left: 3px solid var(--line); border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent); font-size: 12px; color: var(--muted);
+}
+.quote-meta { font-weight: 600; margin-bottom: 2px; }
+.quote-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.record { margin-top: 6px; }
+.record summary { cursor: pointer; font-size: 12px; color: var(--brand); font-weight: 600; }
+.record-list { margin-top: 6px; border-left: 2px solid var(--line); padding-left: 8px; }
+.rec-item { padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }
+.rec-item:last-child { border-bottom: 0; }
+.rec-sender { font-weight: 600; margin-right: 6px; }
+.rec-time { color: var(--muted); margin-right: 6px; }
+.rec-text { display: block; margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .missing { margin-top: 6px; padding: 6px 9px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
 .msg.system { justify-content: center; color: var(--muted); font-size: 12px; }
 .msg.system span { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }

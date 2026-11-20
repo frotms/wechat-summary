@@ -35,6 +35,14 @@ def ensure_utf8():
         pass
 
 
+def fail(code: str, message: str, hint: str = ""):
+    payload = {"success": False, "code": code, "error": message}
+    if hint:
+        payload["hint"] = hint
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 3
+
+
 def find_db_storage(cfg: dict) -> tuple[Path, Path]:
     raw = cfg.get("ntDbPath") or cfg.get("dbPath") or ""
     if not raw:
@@ -68,17 +76,30 @@ def main():
     args = ap.parse_args()
 
     if not sqlcipher_available():
-        raise SystemExit("需要 sqlcipher3：python -m pip install sqlcipher3-wheels")
+        return fail(
+            "SQLCIPHER_MISSING",
+            "需要 sqlcipher3 才能解密 4.1 数据库",
+            "python -m pip install sqlcipher3-wheels",
+        )
 
     cfg_path = Path(args.config).resolve()
     try:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise SystemExit(f"无法读取 config: {exc}")
+        return fail("CONFIG_READ_FAILED", f"无法读取 config: {exc}",
+                    "检查 --config 路径和 JSON 格式")
 
-    db_storage, account_root = find_db_storage(cfg)
+    try:
+        db_storage, account_root = find_db_storage(cfg)
+    except SystemExit as exc:
+        return fail("CONFIG_INVALID", str(exc),
+                    "config 的 dbPath/ntDbPath 需要指向 db_storage 或账号目录")
     work = Path(args.work_dir).resolve()
-    assert_outside(account_root, work, "4.1 解密工作目录")
+    try:
+        assert_outside(account_root, work, "4.1 解密工作目录")
+    except SystemExit as exc:
+        return fail("WORK_DIR_INSIDE_ACCOUNT", str(exc),
+                    "把 --work-dir 改到微信账号目录之外")
 
     key_hex = str(cfg.get("ntKey") or cfg.get("decryptKey") or "")
     salt_hex = str(cfg.get("ntSalt") or "")
@@ -86,6 +107,12 @@ def main():
         passphrase = ""
     else:
         passphrase = str(cfg.get("decryptKey") or cfg.get("favPassphrase") or "")
+    if not passphrase and (not key_hex or not salt_hex):
+        return fail(
+            "CONFIG_KEY_MISSING",
+            "config 缺少可用的 4.1 密钥",
+            "需要 ntKey+ntSalt，或 decryptKey；运行 weflow-cli init 或补全 config",
+        )
 
     dbs = []
     for path in sorted(db_storage.rglob("*.db")):

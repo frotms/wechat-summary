@@ -1,6 +1,6 @@
 ---
 name: wechat-export
-description: 导出本机微信桌面客户端的聊天记录（文字、图片、传输文件、视频），支持按时间范围、按群、按个人筛选，生成可浏览的 HTML、Markdown、JSONL 和媒体文件包。当用户说“导出微信聊天记录”“把某个群/某个人某段时间的聊天导出来”“备份微信群里的图片/文件/视频”“按时间整理微信记录”时使用。仅适用于用户本人设备上已登录的微信桌面客户端，不适用于手机端或他人设备。
+description: 导出本机微信桌面客户端的聊天记录（文字、图片、传输文件、视频、语音、表情、撤回、引用、合并转发），支持按时间范围、按群、按个人筛选，生成可浏览的 HTML、Markdown、JSONL 和媒体文件包，并可做完整性校验。当用户说“导出微信聊天记录”“把某个群/某个人某段时间的聊天导出来”“备份微信群里的图片/文件/视频”“按时间整理微信记录”时使用。仅适用于用户本人设备上已登录的微信桌面客户端，不适用于手机端或他人设备。
 ---
 
 # 微信聊天记录导出（按群 / 按人 / 按时间）
@@ -14,6 +14,7 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 - 范围媒体抽取：`weflow-cli` 的 markdown 导出只支持单日，本 skill 会按“有图片/文件的日期”逐日抽取
 - 视频落盘：`weflow-cli` 原生只给 `[视频]` 标签，本 skill 从 `msg/video` 按 md5 找到 mp4 并复制
 - 统一产物：`index.html` / `transcript.md` / `messages.jsonl` / `manifest.json` / `media/`
+- 内容还原：引用消息（`quote`，HTML 引用块）、合并转发/笔记（`records`，HTML 展开列表）
 
 ## 适用与边界
 
@@ -92,7 +93,7 @@ node scripts/wechat42-export.mjs --group "项目群" --days 7
 
 # 单日文字+图片+文件+视频+语音
 node scripts/wechat42-export.mjs --target "50055365721@chatroom" --date 2026-11-03 \
-  --types text,image,file,video,voice,link
+  --types text,image,file,video,voice,link,history
 
 # 关键词搜索（4.2）
 node scripts/wechat42-export.mjs search --query 1684X --from 2026-08-17 --to 2026-11-17
@@ -101,7 +102,8 @@ node scripts/wechat42-export.mjs search --query 1684X --from 2026-08-17 --to 202
 node scripts/wechat42-export.mjs status
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs check-updates
-node scripts/wechat42-export.mjs clean   # 删除 sandbox/明文 work/home，保留导出结果
+node scripts/wechat42-export.mjs clean   # 删除 sandbox/明文 work/home/_stickers，保留导出结果
+node scripts/wechat41-export.mjs clean   # 删除 wechat41/work/_stickers/映射临时文件
 ```
 
 公众号批量：
@@ -140,7 +142,7 @@ python scripts/wechat41-voice-map.py \
   --target "<群ID/wxid>" --from 2026-11-13 --to 2026-11-13 \
   --out voice-map.json
 
-node scripts/wechat-export.mjs --target "<群ID/wxid>" --date 2026-11-13 \
+node scripts/wechat41-export.mjs --target "<群ID/wxid>" --date 2026-11-13 \
   --types text,voice --media-map voice-map.json
 ```
 
@@ -248,6 +250,8 @@ weflow-cli check            # 看到 Python、消息库都为 ✓ 再继续
 ! weflow-cli init
 ```
 
+> **命令入口**：下面的示例默认用 4.2 入口 `scripts/wechat42-export.mjs`；微信 4.1 把命令名换成 `scripts/wechat41-export.mjs`，参数相同。`scripts/wechat-export.mjs` 是内部主命令，只在调试/对照时直接调用。
+
 ## Agent 执行流程
 
 ### 第 0 步：把需求拆成四个字段
@@ -256,14 +260,14 @@ weflow-cli check            # 看到 Python、消息库都为 ✓ 再继续
 | --- | --- | --- |
 | 目标 | “项目群”“张三”“所有群” | 跑 `--list --json`，让用户确认 |
 | 时间 | “最近 7 天”“2026-01-01 到 2026-01-31”“全部” | 默认全部时间，但要提醒可能很大 |
-| 类型 | 文字 / 图片 / 文件 / 视频 / 全部 | 默认 `text,image,file,video,voice,emoji,link` |
+| 类型 | 文字 / 图片 / 文件 / 视频 / 全部 | 默认 `text,image,file,video,voice,emoji,link,history` |
 | 输出位置 | 默认 `~/.wechat-export/<时间戳>` | 一般不用问；涉及交付时再指定 |
 
 ### 第 1 步：环境体检
 
 ```bash
 cd <skill-dir>
-node scripts/wechat-export.mjs --check
+node scripts/wechat42-export.mjs --check
 ```
 
 需要机器可读结果时加 `--json`。不要跳过这一步直接批量导出：`NOT_INITIALIZED` / `PYTHON_DEPS_MISSING` 在这里就能给出明确动作。
@@ -273,7 +277,7 @@ node scripts/wechat-export.mjs --check
 ### 第 2 步：确认目标（不要猜）
 
 ```bash
-node scripts/wechat-export.mjs --list --json
+node scripts/wechat42-export.mjs --list --json
 ```
 
 输出包含 `index / id / name / kind / lastMessageTime`，默认不含聊天摘要。把用户说的名字映射到 `id`：
@@ -292,7 +296,7 @@ node scripts/wechat-export.mjs --list --json
 先给用户一个 dry-run 计划：
 
 ```bash
-node scripts/wechat-export.mjs --all-groups --days 7 --dry-run
+node scripts/wechat42-export.mjs --all-groups --days 7 --dry-run
 ```
 
 ### 第 4 步：执行导出
@@ -301,26 +305,26 @@ node scripts/wechat-export.mjs --all-groups --days 7 --dry-run
 
 ```bash
 # 某个群最近 7 天
-node scripts/wechat-export.mjs --group "项目群" --days 7
+node scripts/wechat42-export.mjs --group "项目群" --days 7
 
 # 某个人某个月
-node scripts/wechat-export.mjs --person "张三" --from 2026-01-01 --to 2026-01-31
+node scripts/wechat42-export.mjs --person "张三" --from 2026-01-01 --to 2026-01-31
 
 # 用 ID 精确指定（同名时最稳）
-node scripts/wechat-export.mjs --target "12345678@chatroom" --date 2026-01-05
+node scripts/wechat42-export.mjs --target "12345678@chatroom" --date 2026-01-05
 ```
 
 批量：
 
 ```bash
 # 最近 3 天的所有群，只要文字和视频
-node scripts/wechat-export.mjs --all-groups --days 3 --types text,video
+node scripts/wechat42-export.mjs --all-groups --days 3 --types text,video
 
 # 最近 7 天所有个人会话，上限 20 个
-node scripts/wechat-export.mjs --all-persons --days 7 --max-targets 20
+node scripts/wechat42-export.mjs --all-persons --days 7 --max-targets 20
 
 # 先看计划，再执行
-node scripts/wechat-export.mjs --all-groups --days 7 --dry-run
+node scripts/wechat42-export.mjs --all-groups --days 7 --dry-run
 ```
 
 只要某几类：
@@ -330,13 +334,14 @@ node scripts/wechat-export.mjs --all-groups --days 7 --dry-run
 --types image,file    # 需要 Python 依赖
 --types video         # 只需扫描 msg/video
 --types emoji         # 表情（内置表情码 + 自定义表情包）
---types all           # 全部类型（含 link/article/emoji 等）
+--types history       # 合并转发 / 笔记（展开内层文字、文件名、发送者、时间）
+--types all           # 全部类型（含 link/history/article/emoji 等）
 ```
 
 指定输出：
 
 ```bash
-node scripts/wechat-export.mjs --group "项目群" --days 7 --output "D:\\wechat-exports\\项目群-近7天"
+node scripts/wechat42-export.mjs --group "项目群" --days 7 --output "D:\\wechat-exports\\项目群-近7天"
 ```
 
 需要机器可读的最终结果：加 `--json`。进度和告警走 stderr，stdout 只有最终 JSON。
@@ -536,17 +541,17 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 ```bash
 cd <skill-dir>
 
-node scripts/wechat-export.mjs --check
-node scripts/wechat-export.mjs --list
-node scripts/wechat-export.mjs --list --json
+node scripts/wechat42-export.mjs --check
+node scripts/wechat42-export.mjs --list
+node scripts/wechat42-export.mjs --list --json
 
-node scripts/wechat-export.mjs --group "项目群" --days 7
-node scripts/wechat-export.mjs --person "张三" --from 2026-01-01 --to 2026-01-31
-node scripts/wechat-export.mjs --target "123@chatroom" --date 2026-01-05
-node scripts/wechat-export.mjs --all-groups --days 3 --types text,video
-node scripts/wechat-export.mjs --all-persons --days 7 --max-targets 20
+node scripts/wechat42-export.mjs --group "项目群" --days 7
+node scripts/wechat42-export.mjs --person "张三" --from 2026-01-01 --to 2026-01-31
+node scripts/wechat42-export.mjs --target "123@chatroom" --date 2026-01-05
+node scripts/wechat42-export.mjs --all-groups --days 3 --types text,video
+node scripts/wechat42-export.mjs --all-persons --days 7 --max-targets 20
 
-node scripts/wechat-export.mjs --group "项目群" --days 7 --output "D:\\exports\\项目群"
-node scripts/wechat-export.mjs --group "项目群" --days 7 --json
-node scripts/wechat-export.mjs --group "项目群" --days 7 --dry-run
+node scripts/wechat42-export.mjs --group "项目群" --days 7 --output "D:\\exports\\项目群"
+node scripts/wechat42-export.mjs --group "项目群" --days 7 --json
+node scripts/wechat42-export.mjs --group "项目群" --days 7 --dry-run
 ```

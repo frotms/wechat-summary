@@ -575,7 +575,7 @@ revokebatchmessage(local_id, batch_id, msg_unique_id, session_name,
 
 ## 10. 测试矩阵
 
-`npm test` 当前 47 项 Node 测试 + 37 项 Python 测试，全部通过。
+`npm test` 当前 52 项 Node 测试 + 41 项 Python 测试，全部通过。
 
 | 编号 | 测试 | 覆盖 |
 | --- | --- | --- |

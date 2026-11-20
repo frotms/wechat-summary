@@ -9,7 +9,7 @@
  * --legacy-weflow keeps the old weflow-cli voice-map path for comparison.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,6 +31,7 @@ function usage() {
 用法:
   node scripts/wechat41-export.mjs [正常的 wechat-export 参数]
   node scripts/wechat41-export.mjs audit --output <导出目录> [--deep] [--json]
+  node scripts/wechat41-export.mjs clean
 
 额外选项:
   --weflow-cli-dir <scripts 目录>  默认从 npm root -g 查找 weflow-cli/scripts
@@ -345,8 +346,8 @@ function runAudit(args) {
   process.exit(res.status ?? 0)
 }
 
-function nativeEnv(configPath, workDir, accountRoot, python) {
-  return {
+function nativeEnv(configPath, workDir, accountRoot, python, values = {}) {
+  const env = {
     ...process.env,
     WEFLOW_NATIVE_CONFIG: configPath,
     WEFLOW_NATIVE_WORK: workDir,
@@ -355,6 +356,9 @@ function nativeEnv(configPath, workDir, accountRoot, python) {
     PYTHONIOENCODING: 'utf-8',
     PYTHONUTF8: '1',
   }
+  if (values.noVoiceMap) env.WEFLOW_NATIVE_NO_VOICE = '1'
+  if (values.noStickerMap) env.WEFLOW_NATIVE_NO_STICKER = '1'
+  return env
 }
 
 function decrypt41({ configPath, python, workDir }) {
@@ -370,6 +374,15 @@ function decrypt41({ configPath, python, workDir }) {
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
   })
   if (res.status !== 0) {
+    try {
+      const payload = JSON.parse(res.stdout)
+      if (payload?.code) {
+        const hint = payload.hint ? `\n提示: ${payload.hint}` : ''
+        fail(`${payload.code}: ${payload.error}${hint}`, 3)
+      }
+    } catch {
+      // fall through to the raw output
+    }
     fail(`4.1 解密失败：${String(res.stderr || res.stdout || '').slice(-800)}`, 3)
   }
   try {
@@ -464,7 +477,7 @@ function nativeMain(values, rest, configPath, python, baseDir) {
   if (revokeMap) finalArgs.push('--revoke-map', revokeMap)
   const res = run(process.execPath, finalArgs, {
     allowNonZero: true,
-    env: nativeEnv(configPath, workDir, accountRoot, python),
+    env: nativeEnv(configPath, workDir, accountRoot, python, values),
   })
   if (revokeMap) rmSync(revokeMap, { force: true })
   if ((res.status ?? 0) === 0 || res.status === 5) {
@@ -487,9 +500,29 @@ function nativeMain(values, rest, configPath, python, baseDir) {
   process.exit(res.status ?? 0)
 }
 
+function runClean() {
+  const baseDir = join(homedir(), '.wechat-export', 'wechat41')
+  for (const dir of [join(baseDir, 'work'), join(baseDir, '_stickers')]) {
+    if (existsSync(dir)) {
+      rmSync(dir, { recursive: true, force: true })
+      console.log(`已删除: ${dir}`)
+    }
+  }
+  if (existsSync(baseDir)) {
+    const files = readdirSync(baseDir).filter(
+      (name) => /(?:voice|sticker|revoke)-map-.*\.json$/.test(name)
+        || /^(?:voice|sticker|revoke)-.*\.json$/.test(name),
+    )
+    for (const name of files) rmSync(join(baseDir, name), { force: true })
+    if (files.length) console.log(`已删除: ${files.length} 个媒体映射临时文件`)
+  }
+  console.log('已保留配置与导出结果；下次导出会重新解密 work/。')
+}
+
 function main() {
   const argv = process.argv.slice(2)
   if (argv.includes('-h') || argv.includes('--help')) { usage(); return }
+  if (argv[0] === 'clean') { runClean(); return }
   if (argv[0] === 'audit') { runAudit(argv.slice(1)); return }
   const { values, rest } = parseFlags(argv)
   const configPath = resolve(values.config || join(homedir(), '.weflow-cli', 'config.json'))

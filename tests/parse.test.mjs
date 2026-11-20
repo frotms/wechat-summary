@@ -26,6 +26,37 @@ test('classifyMessage recognises text, image, file, video', () => {
   assert.equal(file.file.title, 'a.pdf')
 })
 
+test('quote and chat-history appmsgs are classified before link', () => {
+  const quote = classifyMessage({
+    localType: 57 * 0x1_0000_0000 + 49,
+    messageType: 'quote',
+    parsedContent: '[引用] 回复 | 引用自 张三：原来的消息',
+    quote: { sender: '张三', text: '原来的消息', kind: 'text' },
+  })
+  assert.equal(quote.type, 'quote')
+  assert.equal(
+    buildText({ reply: '回复：你好', parsedContent: '[引用] 回复 | 引用自 张三：原来的消息' },
+      { type: 'quote' }),
+    '回复：你好',
+  )
+
+  const history = classifyMessage({
+    localType: 19 * 0x1_0000_0000 + 49,
+    messageType: 'chat_history',
+    parsedContent: '[聊天记录] 群聊的聊天记录 · 2 条',
+    records: [{ kind: 'text', sender: '张三', text: '你好' }],
+  })
+  assert.equal(history.type, 'history')
+
+  // Legacy/native payloads without messageType still classify by records.
+  const byRecords = classifyMessage({
+    localType: 49,
+    messageType: 'other',
+    records: [{ kind: 'text', text: '你好' }],
+  })
+  assert.equal(byRecords.type, 'history')
+})
+
 test('encoded media types are classified from the XML shape', () => {
   const encoded = 21474836529 // 0x500000031 -> masks to 49
   assert.equal(classifyMessage({

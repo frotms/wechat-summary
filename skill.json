@@ -1,6 +1,6 @@
 {
   "name": "wechat-export",
-  "version": "1.10.1",
+  "version": "1.10.3",
   "category": "other/wechat",
   "source": "自建",
   "status": "draft",
@@ -9,6 +9,30 @@
   "createdAt": "2026-11-16",
   "updatedAt": "2026-11-19",
   "changelog": [
+    {
+      "version": "1.10.3",
+      "date": "2026-11-19",
+      "author": "chenxi liu",
+      "changes": [
+        "真实 4.2 canary：84 条引用 + 91 条引用/6 条合并转发，HTML/Markdown/JSONL/audit 全部通过",
+        "SKILL/README 命令示例改用 4.1/4.2 wrapper；注明 wechat-export.mjs 是内部主命令",
+        "4.2 needWork 包含 nativeDefault；native 4.1/4.2 尊重 --no-voice-map/--no-sticker-map",
+        "clean：4.1 新增 clean（work/_stickers/映射临时文件）；4.2 clean 增加 _stickers",
+        "4.1 解密错误结构化（SQLCIPHER_MISSING/CONFIG_INVALID/CONFIG_KEY_MISSING/WORK_DIR_INSIDE_ACCOUNT + hint）；native 图片/语音/seed/file-index 警告带 code",
+        "CI Python 补 sqlcipher3-wheels；测试 52 项 Node + 41 项 Python"
+      ]
+    },
+    {
+      "version": "1.10.2",
+      "date": "2026-11-19",
+      "author": "chenxi liu",
+      "changes": [
+        "引用消息：refermsg 还原为 quote（sender/text/kind），HTML 引用块、Markdown 引用；修正 appmsg type 57 被误判为 link 的问题",
+        "合并转发/笔记：新增 history 类型，recorditem 展开为 records；HTML <details>、Markdown 引用块；--types 默认包含 history",
+        "native backend 原始 JSON 输出 quote/reply/records/isNote；messages.jsonl 同名字段可直接消费",
+        "测试增至 52 项 Node + 38 项 Python（新增引用/合并转发解析、HTML/Markdown 渲染）"
+      ]
+    },
     {
       "version": "1.10.1",
       "date": "2026-11-19",

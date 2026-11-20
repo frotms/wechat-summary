@@ -31,6 +31,8 @@
 - 语音音频（4.2 自动；4.1 用 `wechat41-export.mjs`）
 - 表情：内置表情码渲染成 emoji；自定义表情包解密导出为 PNG/GIF
 - 撤回记录：批量撤回匹配原消息；单条撤回/孤立记录标记
+- 引用消息：还原被引用消息的发送者/原文（HTML 引用块、Markdown 引用）
+- 合并转发：展开内层文字/文件名/发送者/时间（HTML `<details>`、Markdown 引用块）
 - 按时间（`--from/--to/--date/--days`）、按群、按个人
 - 公众号批量导出（`--all-official`）
 - 微信 4.1 及以下（`wechat41-export.mjs`，默认原生）与微信 4.2（`wechat42-export.mjs`，默认原生）
@@ -105,33 +107,35 @@ weflow-cli check
 
 > 4.1/4.2 wrapper 默认都走原生后端，导出不再需要 `weflow-cli`；上面的安装只为 `--legacy-weflow` 回退/对照。原生路径仍需要 Python venv 与 `work/`；4.1 原生还需要 `sqlcipher3`（`python -m pip install sqlcipher3-wheels`）。
 
+> 下面的示例默认用 4.2 入口 `wechat42-export.mjs`；微信 4.1 把命令名换成 `wechat41-export.mjs`，参数相同。`wechat-export.mjs` 是内部主命令，调试时才直接用。
+
 ### 2. 体检
 
 ```bash
 cd wechat-summary
-node scripts/wechat-export.mjs --check
+node scripts/wechat42-export.mjs --check
 ```
 
 ### 3. 看看有哪些会话
 
 ```bash
-node scripts/wechat-export.mjs --list
+node scripts/wechat42-export.mjs --list
 ```
 
 ### 4. 导出
 
 ```bash
 # 某个群最近 7 天
-node scripts/wechat-export.mjs --group "项目群" --days 7
+node scripts/wechat42-export.mjs --group "项目群" --days 7
 
 # 某个人某个月
-node scripts/wechat-export.mjs --person "张三" --from 2026-01-01 --to 2026-01-31
+node scripts/wechat42-export.mjs --person "张三" --from 2026-01-01 --to 2026-01-31
 
 # 所有群最近 3 天，只要文字和视频
-node scripts/wechat-export.mjs --all-groups --days 3 --types text,video
+node scripts/wechat42-export.mjs --all-groups --days 3 --types text,video
 
 # 精确指定会话 ID，输出到自定义目录
-node scripts/wechat-export.mjs --target "123@chatroom" --date 2026-01-05 \
+node scripts/wechat42-export.mjs --target "123@chatroom" --date 2026-01-05 \
   --output "D:\\wechat-exports\\项目群"
 ```
 
@@ -224,7 +228,7 @@ python -m pip install imageio-ffmpeg
 
 本机实测（2026-11-02，某个群）：21 条表情消息，18 条本机有缓存并成功解密（PNG 3 / GIF 15），3 条本机没有缓存（微信从未下载或已清理），记为缺失而非猜测。
 
-`clean` 会删除 `sandbox/`、明文 `work/` 和含 sandbox 密钥的 `home/`，但保留导出结果；下次导出会重新构建。
+`clean` 会删除 `sandbox/`、明文 `work/`、`home/` 和 `baseDir/_stickers`，但保留导出结果；下次导出会重新构建。4.1 用 `node scripts/wechat41-export.mjs clean` 删除 `wechat41/work`、`_stickers` 和映射临时文件。
 
 ### 完整性校验
 
@@ -340,7 +344,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 | `--all-groups / --all-persons` | 批量导出群/个人 |
 | `--all-official` | 批量导出公众号（`gh_`）会话 |
 | `--from/--to`、`--date`、`--days` | 时间范围；`--to` 含当天 |
-| `--types` | `text,image,file,video,voice,link,emoji,...,all`；默认 `text,image,file,video,voice,link` |
+| `--types` | `text,image,file,video,voice,link,history,emoji,...,all`；默认 `text,image,file,video,voice,link,history` |
 | `--media-strategy` | `auto` / `day` / `full` / `none` |
 | `--full-images` | 用原图而不是缓存缩略图（慢） |
 | `--no-video-scan` | 不扫描 `msg/video` |
@@ -381,7 +385,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 npm test
 ```
 
-当前 47 项 Node 测试 + 37 项 Python 测试，覆盖：
+当前 52 项 Node 测试 + 41 项 Python 测试，覆盖：
 
 - 参数解析、日期窗口、类型映射
 - 文件 appmsg / 视频 md5 / 群发送者前缀 / 链接 fallback
@@ -390,6 +394,7 @@ npm test
 - 表情包解密、wxgf 转码、内置表情码渲染
 - 完整性校验：数据库行数 = 原始 JSON = 导出 + 按类型跳过；缺行/重复/时间窗外可检出；`--deep` 按 `local_id+server_id` 逐条对账（含“计数相等但一丢一重”）
 - 撤回记录：批量撤回匹配原消息、单条撤回孤立记录、HTML/Markdown 标记
+- 引用/合并转发：`refermsg` → `quote`、`recorditem` → `records`；HTML/Markdown 渲染
 - 只读命令白名单、输出路径保护
 - Level 2 原生 4.2 后端：sessions/contacts/export json（含图片/文件）
 - 端到端：假 `weflow-cli` + 合成微信目录，验证文本/图片/文件/视频/语音/表情、链接 fallback、缺失原因、dry-run、列表过滤、公众号批量、环境体检、输出目录保护
@@ -405,7 +410,7 @@ BACKLOG.md                   # 已记录、暂不实现的需求（收藏等）
 docs/MERGE_PLAN.md           # 分支收敛计划（main → feat，含跟踪表）
 compat.json                  # 微信版本 → 上游 commit → 验证结果
 scripts/
-  wechat-export.mjs          # 主命令（4.1 / weflow-cli）
+  wechat-export.mjs          # 内部主命令（4.1/4.2 wrapper 调用；调试用）
   native-weflow.mjs          # Level 2：weflow-cli 兼容 shim（4.1/4.2 默认）
   native-backend.py          # Level 2：原生读取/导出（sessions/contacts/export）
   check.mjs                  # 环境体检入口

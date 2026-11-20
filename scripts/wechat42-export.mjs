@@ -69,6 +69,7 @@ export:
   --refresh                先重建 sandbox
   --no-media-map           不生成视频/图片补全映射（只依赖 weflow manifest）
   --no-sticker-map         不生成表情包映射（表情只保留文字标签）
+  --no-voice-map           不生成/导出语音（只保留文字标签）
   --sticker-seed <值>      表情包解密种子（缺省自动探测：配置或微信进程内存）
   --no-revoke-map          不生成撤回记录映射
   --no-audit               导出后不跑完整性校验
@@ -132,6 +133,7 @@ function parseFlags(args) {
     if (token === '--with-sandbox') { values.withSandbox = true; continue }
     if (token === '--no-media-map') { values.noMediaMap = true; continue }
     if (token === '--no-sticker-map') { values.noStickerMap = true; continue }
+    if (token === '--no-voice-map') { values.noVoiceMap = true; continue }
     if (token === '--no-revoke-map') { values.noRevokeMap = true; continue }
     if (token === '--no-audit') { values.noAudit = true; continue }
     if (token === '--legacy-weflow') { values.legacyWeflow = true; continue }
@@ -256,7 +258,7 @@ function ensurePythonCache(config) {
   }
 }
 
-function sandboxEnv(config) {
+function sandboxEnv(config, values = {}) {
   const env = { ...process.env, USERPROFILE: config.homeDir, HOME: config.homeDir }
   const venvBin = process.platform === 'win32'
     ? join(homedir(), '.weflow-cli', 'venv', 'Scripts')
@@ -272,6 +274,8 @@ function sandboxEnv(config) {
   env.WEFLOW_NATIVE_WORK = config.workDir
   env.WEFLOW_NATIVE_ACCOUNT = config.accountRoot
   env.WEFLOW_NATIVE_PYTHON = config.venvPython
+  if (values.noVoiceMap) env.WEFLOW_NATIVE_NO_VOICE = '1'
+  if (values.noStickerMap) env.WEFLOW_NATIVE_NO_STICKER = '1'
   return env
 }
 
@@ -458,7 +462,7 @@ function runExport(values, args) {
   // The plaintext work dir may have been removed by `clean`. Media/revoke map
   // generation needs it; rebuild on demand (normal exports can use the sandbox
   // without it). Dry-run skips the maps entirely.
-  const needWork = !dryRun && (!values.noMediaMap || !values.noRevokeMap)
+  const needWork = !dryRun && (nativeDefault || !values.noMediaMap || !values.noRevokeMap)
   if (needWork && !existsSync(config.workDir)) {
     console.error('明文 work/ 不存在，重建 work/ ...')
     runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
@@ -526,7 +530,7 @@ function runExport(values, args) {
   const finalArgs = [MAIN, ...forward, '--weflow-config', sandboxConfigPath(config)]
   if (mediaMapPath) finalArgs.push('--media-map', mediaMapPath)
   if (revokeMapPath) finalArgs.push('--revoke-map', revokeMapPath)
-  const res = run(process.execPath, finalArgs, { env: sandboxEnv(config), allowNonZero: true })
+  const res = run(process.execPath, finalArgs, { env: sandboxEnv(config, values), allowNonZero: true })
   // The maps only bridge metadata into this one export; they contain local
   // paths, so don't leave copies behind.
   if (mediaMapPath) rmSync(mediaMapPath, { force: true })
@@ -752,7 +756,7 @@ function runDoctor() {
 function runClean() {
   const config = readConfig()
   if (!config) { console.log('未配置 4.2 后端'); return }
-  for (const dir of [config.sandboxDir, config.workDir, config.homeDir]) {
+  for (const dir of [config.sandboxDir, config.workDir, config.homeDir, join(config.baseDir, '_stickers')]) {
     if (existsSync(dir)) {
       rmSync(dir, { recursive: true, force: true })
       console.log(`已删除: ${dir}`)
@@ -763,7 +767,7 @@ function runClean() {
     for (const name of maps) rmSync(join(config.baseDir, name), { force: true })
     if (maps.length) console.log(`已删除: ${maps.length} 个媒体映射临时文件`)
   }
-  console.log('已保留配置与导出结果；下次导出会重新构建 sandbox。')
+  console.log('已保留配置与导出结果；下次导出会重新构建 work/（或 sandbox）。')
 }
 
 function main() {

@@ -1,6 +1,6 @@
 # 当前状态与待办
 
-> 版本：1.10.1（2026-11-19）  
+> 版本：1.10.3（2026-11-19）  
 > 验证环境：Windows 10 + 微信桌面版 4.2.0.13  
 > 详细设计见 `DESIGN.md`；按优先级排列的待办见 `TODO.md`；已记录但暂不实现的需求见 `BACKLOG.md`。
 
@@ -16,6 +16,8 @@
 | 表情 | ✅ | 内置表情码渲染为 emoji；自定义表情包解密为 PNG/GIF |
 | 文章链接 / 公众号 | ✅ | `link` 类型 + `appUrl/appTitle` fallback；`--all-official` |
 | 撤回记录 | ✅ | 批量撤回匹配原消息；单条/孤立记录写 `revokes.json`，消息标记 `revoked` |
+| 引用消息 | ✅ | `refermsg` 还原发送者/原文为 `quote`；HTML 引用块、Markdown 引用 |
+| 合并转发/笔记 | ✅ | `recorditem` 展开内层文字/文件名/发送者/时间为 `records`；HTML `<details>`、Markdown 引用块 |
 | 按时间/群/个人 | ✅ | `--from/--to/--date/--days`、`--group/--person`、`--all-*` |
 | V2 加密视频 | ✅ | `lib/v2_decode.py`，4.2 媒体映射自动尝试 |
 | 完整性校验 | ✅ | 数据库行数 = 原始 JSON = 导出 + 按类型跳过；`audit.json`；`audit --deep` 按 `local_id+server_id` 逐条对账 |
@@ -24,7 +26,7 @@
 | 4.1 后端 | ✅ 原生（合成测试） | `wechat41-decrypt.py` → `work/` → native backend；本机无 4.1 真机数据，仅有合成 SQLCipher 测试 |
 | 脱离 `weflow-cli` | ✅ 4.1/4.2 原生 | `native-backend.py` + `native-weflow.mjs`；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
-| 测试 | ✅ | 47 项 Node + 37 项 Python |
+| 测试 | ✅ | 52 项 Node + 41 项 Python |
 
 ### 本机验证基线（微信 4.2.0.13）
 
@@ -36,6 +38,9 @@
 - 2026-10-29：完整性校验 557 = 557 = 557；`--types text` 时 441 + 跳过 116 = 557
 - 2026-11-18：Level 2 原生 4.2 实测：文字 9/9、图片 2/2、文件 3/3、语音 4/4、视频 1/1；audit 通过
 - 2026-11-19：`audit --deep` 逐条 ID 对账：完整链 0 missing / 0 extra；一丢一重、尾部缺失、导出后新消息边界、类型不符均有测试
+- 2026-11-19：引用/合并转发：`refermsg` 还原为 `quote`，`recorditem` 展开为 `records`；HTML/Markdown/JSONL 均有测试
+- 2026-11-19：真实 4.2 canary：普曼群 84 条引用；理财群 91 条引用 + 6 条合并转发；HTML 引用块 84/91、`<details>` 6 个，audit 通过
+- 2026-11-19：clean 后带 `--no-media-map --no-revoke-map --no-voice-map --no-sticker-map` 导出：自动重建 work/，47 条，audit 通过
 
 ## 二、已知限制
 
@@ -46,7 +51,7 @@
 4. **4.1 全链路**：语音、表情、撤回、audit 只有代码，无真机验证。
 5. **V2/HEVC 图片**：V2 视频有合成测试；图片侧依赖 weflow-cli，未专门验证。
 6. **真实 V2 视频**：本机 1331 个视频全是普通 MP4，V2 只有合成测试。
-7. **非文本消息结构化**：红包、转账、引用、合并转发、小程序、位置、名片多为文字/链接标签，未解析金额/引用原文/合并明细。
+7. **非文本消息结构化**：红包、转账、小程序、位置、名片多为文字/链接标签，未解析金额等字段；引用和合并转发已还原。
 8. **公众号**：本机无 `gh_` 会话，`--all-official` 只有假 CLI 测试。
 9. **大会话性能**：媒体映射对每个目标扫描；实测某群 340 条约 6 分钟。
 10. **跨平台**：只在 Windows 10/11 + 微信 4.x 验证；macOS/Linux、微信 3.x 未验证。
@@ -66,7 +71,7 @@
 
 - [ ] V2/HEVC 图片验证与解码补齐。
 - [ ] 真实 V2 视频 canary。
-- [ ] 红包/转账/引用/合并转发/小程序/位置/名片的结构化解析。
+- [ ] 红包/转账/小程序/位置/名片的结构化解析。
 - [ ] 真实 `gh_` 公众号 canary。
 
 ### P2：工程化
@@ -93,8 +98,8 @@
 ## 四、如何自检
 
 ```bash
-npm test                  # 47 项 Node 测试
-npm run test:py           # 37 项 Python 测试
+npm test                  # 52 项 Node 测试
+npm run test:py           # 41 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs audit --output "<导出目录>"

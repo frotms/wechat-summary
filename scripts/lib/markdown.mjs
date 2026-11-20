@@ -43,6 +43,22 @@ export function renderMarkdown({ target, records, manifest }) {
     const revoked = record.revoked ? '（已撤回）' : ''
     lines.push(`**${time} · ${sender}${revoked}**  \n${mdEscapeText(renderFaces(record.text))}`)
 
+    if (record.quote?.text) {
+      const who = record.quote.sender ? ` ${record.quote.sender}` : ''
+      lines.push('')
+      lines.push(`> 引用${who}：${mdEscapeText(record.quote.text).replace(/\n/g, '\n> ')}`)
+    }
+    if (record.records?.length) {
+      lines.push('')
+      lines.push(`**💬 ${record.isNote ? '笔记' : '聊天记录'}（${record.records.length} 条）**`)
+      for (const item of record.records) {
+        const who = item.sender ? `${item.sender} ` : ''
+        const when = item.time ? `${item.time} ` : ''
+        const text = mdEscapeText(item.text || '').replace(/\n/g, '\n> ')
+        lines.push(`> ${who}${when}${text}`)
+      }
+    }
+
     if (record.media?.image) {
       lines.push('')
       lines.push(`![图片](${link(record.media.image)})`)

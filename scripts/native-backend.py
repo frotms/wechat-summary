@@ -162,6 +162,10 @@ def to_weflow(item):
         "appUrl": parsed.get("url") or "",
         "appTitle": parsed.get("title") or "",
         "appDescription": parsed.get("des") or "",
+        "quote": parsed.get("quote") or None,
+        "reply": parsed.get("reply") or "",
+        "records": parsed.get("records") or [],
+        "isNote": bool(parsed.get("is_note")),
     }
 
 
@@ -190,11 +194,13 @@ def prepare_target_images(store, work: Path, account: Path, msgs):
                        only_md5s=md5s)
         store._image_index = None
     except Exception as exc:  # noqa: BLE001
-        print(f"! 原生图片解密失败: {exc}", file=sys.stderr)
+        print(f"! [NATIVE_IMAGE_DECRYPT_FAILED] {exc}；图片将标记缺失", file=sys.stderr)
 
 
 def prepare_target_voices(store, work: Path, target: str, msgs):
     """Decode the target's voice SILK rows to work/_voices."""
+    if os.environ.get("WEFLOW_NATIVE_NO_VOICE") == "1":
+        return
     voice_ids = {item.get("local_id") for item in msgs if item.get("kind") == "voice"}
     if not voice_ids:
         return
@@ -206,7 +212,7 @@ def prepare_target_voices(store, work: Path, target: str, msgs):
         spec.loader.exec_module(module)
         module.prepare_voice_wavs(work, target, voice_ids)
     except Exception as exc:  # noqa: BLE001
-        print(f"! 原生语音解码失败: {exc}", file=sys.stderr)
+        print(f"! [NATIVE_VOICE_DECODE_FAILED] {exc}；语音将标记缺失", file=sys.stderr)
 
 
 def sticker_md5(item):
@@ -219,6 +225,8 @@ def sticker_md5(item):
 
 def prepare_target_stickers(work: Path, account: Path, msgs):
     """Decrypt cached custom stickers to work/_native_stickers."""
+    if os.environ.get("WEFLOW_NATIVE_NO_STICKER") == "1":
+        return {}
     ids = {sticker_md5(item) for item in msgs if item.get("kind") == "sticker"}
     ids.discard("")
     if not ids:
@@ -243,7 +251,8 @@ def prepare_target_stickers(work: Path, account: Path, msgs):
             except OSError:
                 pass
     if not seed:
-        print("! 原生表情：没有拿到 seed；表情标记缺失", file=sys.stderr)
+        print("! [NATIVE_STICKER_SEED_MISSING] 没有拿到表情解密 seed；表情将标记缺失。"
+              "提示：保持微信运行后重试，或配置 emoticonSeed/--sticker-seed。", file=sys.stderr)
         return {}
     key = derive_sticker_key(seed, wxid)
     out_dir = work / "_native_stickers"
@@ -261,8 +270,9 @@ def file_index(work: Path, account: Path):
     if cache.is_file():
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as exc:
+            print(f"! [NATIVE_FILE_INDEX_INVALID] 文件索引缓存不可读（{exc}）；已重建",
+                  file=sys.stderr)
     index = {}
     roots = [account / "msg" / "file", account / "msg" / "attach"]
     for root in roots:
@@ -363,6 +373,8 @@ def write_assets(store, msgs, output: Path, talker: str, account: Path, work: Pa
                     "md5": md5,
                 }
         elif kind == "voice":
+            if os.environ.get("WEFLOW_NATIVE_NO_VOICE") == "1":
+                continue
             source = item.get("media") or ""
             target = copy_asset(source, voices_dir,
                                 f'voice_{item.get("local_id")}_{item.get("ts")}.wav')
@@ -373,6 +385,8 @@ def write_assets(store, msgs, output: Path, talker: str, account: Path, work: Pa
                     "bytes": target.stat().st_size,
                 }
         elif kind == "sticker":
+            if os.environ.get("WEFLOW_NATIVE_NO_STICKER") == "1":
+                continue
             md5 = sticker_md5(item)
             source = stickers.get(md5, "")
             ext = os.path.splitext(source)[1] or ".png"
