@@ -413,7 +413,7 @@ VERSION_MAINTENANCE.md       # 微信升级排查手册
 REFERENCES.md                # 参考项目清单
 THIRD_PARTY_NOTICES.md       # 第三方代码/依赖/许可证
 NOTICE                       # 版权与来源声明
-docs/MERGE_PLAN.md           # 分支收敛计划（main → feat，含跟踪表）
+docs/MERGE_PLAN.md           # 分支收敛记录（已完成；只剩 main）
 compat.json                  # 微信版本 → 上游 commit → 验证结果
 scripts/
   wechat-export.mjs          # 内部主命令（4.1/4.2 wrapper 调用；调试用）

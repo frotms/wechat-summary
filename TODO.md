@@ -1,6 +1,6 @@
 # TODO（当前待办）
 
-> 更新：2026-11-19 · 版本 1.10.3  
+> 更新：2026-11-20 · 版本 1.10.3  
 > 只列**尚未完成/尚未验证**的 skill 工作；`BACKLOG.md` 里的收藏、朋友圈、公众号正文、语音转写等已记录项不重复。  
 > 定位：Claude Code Skill，**不做 GUI / 管理后台 / 工程化界面**；导出 HTML 只是浏览产物。  
 > **2026-11-20**：用户确认先不管微信 4.1；4.1 条目统一标为「暂缓」，不阻塞当前收口。
@@ -20,6 +20,7 @@
 - [ ] 单入口自动识别 4.1/4.2（feat → `wechat-export.mjs`）
 - [ ] 输出 schema 统一（以 feat JSONL 为准）
 - [x] 文档/测试收编（SECURITY/VERSION_MAINTENANCE/REFERENCES 已移植改写；selftest 场景由 feat 测试覆盖）
+- [x] Phase 2 分支收口（2026-11-20，`b53eeb5`；本地/远端只剩 `main`，feat 已删除）
 
 ## P0：影响 skill 正确使用
 

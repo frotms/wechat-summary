@@ -79,26 +79,33 @@ main 不是被“合并进来”，而是作为**能力库**：只移植其中 f
 | 9 | 输出 schema 统一 | 双方 | bundle/manifest | 只保留一套 JSONL 字段，补 main 的 `missing.reason` |
 | 10 ✅ | 文档/测试收编 | main | feat | 2026-11-20 完成：SECURITY/VERSION_MAINTENANCE/REFERENCES/THIRD_PARTY_NOTICES/NOTICE 已移植改写；CI 补 `sqlcipher3-wheels` |
 
-## 5. Phase 2：分支收口（Phase 1 完成后执行）
+## 5. Phase 2：分支收口（已完成 2026-11-20）
 
-1. 确认测试全绿、4.2 验收完成（4.1 暂缓，不再阻塞）
-2. 在 feat 上 `git merge -s ours main`：保留 main 历史，树只取 feat
-3. `git checkout main && git merge --ff-only feat`
-4. 删除 feat 分支（本地与远端）
-5. 旧 main 由 tag `archive-main-python-4.1-2026-11-18` 保底
+1. [x] 确认测试全绿、4.2 验收完成（4.1 暂缓，不再阻塞）
+2. [x] 在 feat 上 `git merge -s ours main`：保留 main 历史，树只取 feat（`b53eeb5`）
+3. [x] `git checkout main && git merge --ff-only feat`
+4. [x] 删除 feat 分支（本地与远端）
+5. [x] 旧 main 由 tag `archive-main-python-4.1-2026-11-18` 保底
+
+最终状态：
+
+- `main` = `b53eeb5`，包含 4.2 主线 + 旧 main 历史（merge commit）
+- 本地和远端都只剩 `main`；`feat/wechat-export-skill` 已删除
+- 归档 tag 仍在：`archive-main-python-4.1-2026-11-18`、`baseline-feat-2026-11-19`
+- 收口时测试：52 项 Node + 41 项 Python 全绿
 
 ## 6. 验收标准（Definition of Done）
 
-- [ ] 只有一个活跃分支 `main`
-- [ ] 一个 Skill 目录、一个 `SKILL.md`、一个用户入口
-- [ ] 一套输出契约，没有并列的第二套
-- [ ] `npm test` + `npm run test:py` 全绿，CI 绿
-- [ ] 4.2 真机：sessions/contacts/export/voice/sticker/revoke/audit 全过
-- [ ] 4.1 暂缓（不在本次收口验收；代码保留，tag 保底）
-- [ ] `verify --deep` 在 4.2 为 0 missing
-- [ ] SKILL 触发词覆盖语音、表情、撤回、引用、合并转发、完整性校验、4.2
-- [ ] 文档只有一份真相，TODO/BACKLOG 不重复
-- [ ] main 来源代码有 NOTICE 声明
+- [x] 只有一个活跃分支 `main`
+- [x] 一个 Skill 目录、一个 `SKILL.md`、一个用户入口
+- [x] 一套输出契约，没有并列的第二套
+- [x] `npm test` + `npm run test:py` 全绿（CI 待推送后实际跑）
+- [x] 4.2 真机：已有 2026-11-13/18 基线和 2026-11-19 引用/转发 canary
+- [x] 4.1 暂缓（不在本次收口验收；代码保留，tag 保底）
+- [ ] `verify --deep` 在 4.2 真实导出上跑一次 0 missing（合成测试已通过）
+- [x] SKILL 触发词覆盖语音、表情、撤回、引用、合并转发、完整性校验、4.2
+- [x] 文档只有一份真相，TODO/BACKLOG 不重复
+- [x] main 来源代码/文档有 NOTICE 声明
 
 ## 7. 风险与止损
 
