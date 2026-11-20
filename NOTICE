@@ -1,0 +1,13 @@
+wechat-summary
+Copyright 2026 frotms
+
+Licensed under the MIT License; see LICENSE.
+
+This product includes vendored code from TangGod991021/wechat-exporter
+(MIT, upstream commit cc718ef14fd815c9d04c2035b53cee0ee0539e36).
+See THIRD_PARTY_NOTICES.md for third-party dependencies and reference material.
+
+Some documentation and design notes were adapted from the archived main branch
+(Apache-2.0, same author), preserved at tag
+archive-main-python-4.1-2026-11-18. The archived 4.1 engine is not part of the
+current runtime.

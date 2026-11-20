@@ -23,8 +23,8 @@
 | 完整性校验 | ✅ | 数据库行数 = 原始 JSON = 导出 + 按类型跳过；`audit.json`；`audit --deep` 按 `local_id+server_id` 逐条对账 |
 | 只读硬约束 | ✅ | weflow-cli 命令白名单 + 输出路径保护；不写/不转发/不增删改 |
 | 4.2 后端 | ✅ | 内置 vendor（wechat-exporter MIT）+ sandbox；默认 `native-backend.py` 读取 `work/`，4.2 导出不再依赖 `weflow-cli`（`--legacy-weflow` 可回退） |
-| 4.1 后端 | ✅ 原生（合成测试） | `wechat41-decrypt.py` → `work/` → native backend；本机无 4.1 真机数据，仅有合成 SQLCipher 测试 |
-| 脱离 `weflow-cli` | ✅ 4.1/4.2 原生 | `native-backend.py` + `native-weflow.mjs`；`--legacy-weflow` 保留回退 |
+| 4.1 后端 | ⏸ 暂缓 | 代码保留，但暂不维护/未真机验证；旧实现归档在 tag `archive-main-python-4.1-2026-11-18` |
+| 脱离 `weflow-cli` | ✅ 4.2 原生 | 4.2 默认 `native-backend.py` + `native-weflow.mjs`；4.1 代码保留但不维护；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
 | 测试 | ✅ | 52 项 Node + 41 项 Python |
 
@@ -46,9 +46,9 @@
 
 1. **普通单条撤回**：本地通常只剩 `sysmsg type="revokemsg"` 提示，没有 `newmsgid`，原内容一般拿不到；`revokemessage` 表本机 0 行，未验证。
 2. **批量撤回**：依赖原消息行仍在；原行被删除则无法恢复。
-3. **`weflow-cli` 依赖**：4.1/4.2 默认都走原生后端，不再需要 `weflow-cli`；只有 `--legacy-weflow` 回退时才用。
+3. **`weflow-cli` 依赖**：4.2 默认走原生后端，不再需要 `weflow-cli`；只有 `--legacy-weflow` 回退时才用。4.1 代码保留但暂不维护。
 3. **实时库一致性**：普通计数 `audit` 在导出后重新查库，时间范围含今天时可能误报；`audit --deep` 优先用 `coverage.boundary` 钉住导出时刻，旧导出退回兜底边界并标 `reliable: false`。
-4. **4.1 全链路**：语音、表情、撤回、audit 只有代码，无真机验证。
+4. **4.1 暂缓**：用户 2026-11-20 确认先不管 4.1；相关代码、合成测试保留，但不维护/不验收。旧实现见 tag `archive-main-python-4.1-2026-11-18`。
 5. **V2/HEVC 图片**：V2 视频有合成测试；图片侧依赖 weflow-cli，未专门验证。
 6. **真实 V2 视频**：本机 1331 个视频全是普通 MP4，V2 只有合成测试。
 7. **非文本消息结构化**：红包、转账、小程序、位置、名片多为文字/链接标签，未解析金额等字段；引用和合并转发已还原。
@@ -63,7 +63,6 @@
 ### P0：结果可信度
 
 - [ ] 实时库一致性：普通计数 audit 仍需边界容差；`audit --deep` 已用 `coverage.boundary` 钉住导出时刻。
-- [ ] 4.1 真机验证：语音映射、表情包、撤回、audit。
 - [ ] 单条撤回 `revokemessage` 实样：确认 `content` 是否为原文、`svr_id` 格式、`revoke_time` 单位。
 - [ ] 大会话性能：减少媒体映射逐目标全表扫描；评估直读媒体。
 
@@ -81,11 +80,11 @@
 - [x] **Level 2（4.2）**：`native-backend.py` + `native-weflow.mjs`，4.2 导出不再调用 `weflow-cli`；`--legacy-weflow` 保留对照。
 - [x] **Level 2（4.1）**：`wechat41-decrypt.py` + `lib/v41db.py`，SQLCipher → `work/` → native backend；合成 SQLCipher 测试通过，真机待验证。
 - [x] **native-only setup**：4.2 `setup` 默认只生成 `work/`，`--with-sandbox` 才生成 sandbox。
-- [ ] 首次提交并跑 GitHub Actions。
-- [ ] 依赖清单与一键安装；4.1 版 `doctor`。
+- [ ] 推送并跑 GitHub Actions。
+- [ ] 依赖清单与一键安装；4.1 版 `doctor` 暂缓。
 - [ ] 跨平台验证（macOS/Linux、微信 3.x）。
 - [ ] 导出物加密/脱敏/保留期选项。
-- [ ] 更新 `SKILL.md` frontmatter description，覆盖语音、表情、撤回、完整性校验。
+- [x] 更新 `SKILL.md` frontmatter description，覆盖语音、表情、撤回、引用、合并转发、完整性校验。
 
 ### 已记录、暂不实现（见 `BACKLOG.md`）
 
@@ -102,12 +101,13 @@ npm test                  # 52 项 Node 测试
 npm run test:py           # 41 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor
-node scripts/wechat42-export.mjs audit --output "<导出目录>"
+node scripts/wechat42-export.mjs audit --output "<导出目录>" --deep
 ```
 
 ## 五、许可证与第三方
 
 - 本仓库：MIT（根 `LICENSE`）。
 - `scripts/vendor/wechat42/`：来自 MIT 项目 `TangGod991021/wechat-exporter`，见目录内 `LICENSE` / `NOTICE.md`。
-- 读取底座 `weflow-cli`：MIT。
+- 读取底座 `weflow-cli`：MIT（仅 `--legacy-weflow` 可选）。
 - `WeFlow`（`hicccc77/WeFlow`）：CC BY-NC-SA 4.0，仅作设计参考，未 vendor。
+- 完整第三方清单、文档来源和分发注意见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 与 [`NOTICE`](NOTICE)。

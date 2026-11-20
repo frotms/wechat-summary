@@ -55,7 +55,7 @@ main 不是被“合并进来”，而是作为**能力库**：只移植其中 f
 | # | 能力 | 来源 | 落到哪 | 验收 |
 | --- | --- | --- | --- | --- |
 | 1 ✅ | `verify --deep` 按 `local_id + server_id` 回源库对账 | main | feat audit/verify | 2026-11-19 完成；合成库 0 missing / 0 extra |
-| 2 | 4.1 真机对齐（图片 key、媒体布局、hardlink/resource 表） | main | feat 4.1 native | 真机 sessions/contacts/export/voice/sticker/revoke/audit 全过；只留一套引擎 |
+| 2 ⏸ | 4.1 真机对齐（图片 key、媒体布局、hardlink/resource 表） | main | feat 4.1 native | 2026-11-20 用户确认先不管 4.1；代码保留，暂缓验收 |
 | 3 ✅ | 引用消息 `refermsg` 还原 | main | Python 解析层 | 2026-11-19 完成；HTML/JSONL 可验证发送者/时间/原文 |
 | 4 ✅ | 合并转发 `recorditem` 内层展开 | main | Python 解析层 | 2026-11-19 完成；内层文字/文件名/发送者/时间齐全 |
 | 5 | 公众号正文抓取 `--fetch-articles` | main | 可选网络模块 | 默认关闭；域名白名单 + 重定向复核 |
@@ -75,13 +75,13 @@ main 不是被“合并进来”，而是作为**能力库**：只移植其中 f
 | # | 能力 | 来源 | 落到哪 | 验收 |
 | --- | --- | --- | --- | --- |
 | 7 | `decrypt-image` 单文件调试入口 | main | Python 工具 | 单文件可解，有测试 |
-| 8 | 单入口自动识别 4.1/4.2 | feat | `wechat-export.mjs` | 一条命令跑通两个版本；`--engine` 可覆盖 |
+| 8 ✅ | 单入口（4.2 为准） | feat | `wechat-export.mjs` | 用户入口统一为 `wechat42-export.mjs`；4.1 暂缓，不做自动分发 |
 | 9 | 输出 schema 统一 | 双方 | bundle/manifest | 只保留一套 JSONL 字段，补 main 的 `missing.reason` |
-| 10 | 文档/测试收编 | main | feat | SECURITY/VERSION_MAINTENANCE 合并；selftest 场景转 Python 测试；CI 补 `sqlcipher3-wheels` |
+| 10 ✅ | 文档/测试收编 | main | feat | 2026-11-20 完成：SECURITY/VERSION_MAINTENANCE/REFERENCES/THIRD_PARTY_NOTICES/NOTICE 已移植改写；CI 补 `sqlcipher3-wheels` |
 
 ## 5. Phase 2：分支收口（Phase 1 完成后执行）
 
-1. 确认测试全绿、4.1/4.2 验收完成
+1. 确认测试全绿、4.2 验收完成（4.1 暂缓，不再阻塞）
 2. 在 feat 上 `git merge -s ours main`：保留 main 历史，树只取 feat
 3. `git checkout main && git merge --ff-only feat`
 4. 删除 feat 分支（本地与远端）
@@ -94,9 +94,9 @@ main 不是被“合并进来”，而是作为**能力库**：只移植其中 f
 - [ ] 一套输出契约，没有并列的第二套
 - [ ] `npm test` + `npm run test:py` 全绿，CI 绿
 - [ ] 4.2 真机：sessions/contacts/export/voice/sticker/revoke/audit 全过
-- [ ] 4.1 真机：同样链路全过；没有真机数据时明确标“未验证”，不得默认通过
-- [ ] `verify --deep` 在 4.1/4.2 均为 0 missing
-- [ ] SKILL 触发词覆盖语音、表情、撤回、完整性校验、4.1/4.2
+- [ ] 4.1 暂缓（不在本次收口验收；代码保留，tag 保底）
+- [ ] `verify --deep` 在 4.2 为 0 missing
+- [ ] SKILL 触发词覆盖语音、表情、撤回、引用、合并转发、完整性校验、4.2
 - [ ] 文档只有一份真相，TODO/BACKLOG 不重复
 - [ ] main 来源代码有 NOTICE 声明
 
@@ -104,7 +104,7 @@ main 不是被“合并进来”，而是作为**能力库**：只移植其中 f
 
 | 风险 | 应对 |
 | --- | --- |
-| 没有 4.1 真机数据 | 只做代码对齐 + 合成测试；文档标“未验证”；保留 `--legacy-weflow` |
+| 没有 4.1 真机数据 | 用户 2026-11-20 确认暂缓 4.1；代码保留，tag 保底，不阻塞收口 |
 | 两套 parser 漂移 | Python 是唯一规范化层；评审卡住 Node 侧解析 |
 | 输出格式不兼容 | 不做双格式；需要时写一次性转换器 |
 | 移植变重写 | 只搬函数/模块，不搬整个 `wxexport.py`；每项独立提交可回退 |

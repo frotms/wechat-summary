@@ -2,7 +2,8 @@
 
 > 更新：2026-11-19 · 版本 1.10.3  
 > 只列**尚未完成/尚未验证**的 skill 工作；`BACKLOG.md` 里的收藏、朋友圈、公众号正文、语音转写等已记录项不重复。  
-> 定位：Claude Code Skill，**不做 GUI / 管理后台 / 工程化界面**；导出 HTML 只是浏览产物。
+> 定位：Claude Code Skill，**不做 GUI / 管理后台 / 工程化界面**；导出 HTML 只是浏览产物。  
+> **2026-11-20**：用户确认先不管微信 4.1；4.1 条目统一标为「暂缓」，不阻塞当前收口。
 
 ## 分支收敛（P0，进行中）
 
@@ -11,25 +12,25 @@
 - [x] 固化 feat 基线（`80c7573`，tag `baseline-feat-2026-11-19`）
 - [x] 归档 main（tag `archive-main-python-4.1-2026-11-18`）
 - [x] `verify --deep` ID 对账（main → feat audit；2026-11-19 完成，含 coverage.boundary、类型/跳过校验）
-- [ ] 4.1 真机对齐（main → feat 4.1 native；与下方「4.1 真实兼容性验证」合并执行，只留一套引擎）
+- [ ]（暂缓）4.1 真机对齐（main → feat 4.1 native；与下方「4.1 真实兼容性验证」合并执行，只留一套引擎）
 - [x] 引用 `refermsg` 还原（main → Python 解析层；2026-11-19 完成）
 - [x] 合并转发 `recorditem` 展开（main → Python 解析层；2026-11-19 完成）
 - [ ] 公众号正文 / 表情 CDN 补下载（main → 可选网络模块）
 - [ ] `decrypt-image` 单文件调试入口（main → Python 工具）
 - [ ] 单入口自动识别 4.1/4.2（feat → `wechat-export.mjs`）
 - [ ] 输出 schema 统一（以 feat JSONL 为准）
-- [ ] 文档/测试收编（SECURITY/VERSION_MAINTENANCE、selftest 场景）
+- [x] 文档/测试收编（SECURITY/VERSION_MAINTENANCE/REFERENCES 已移植改写；selftest 场景由 feat 测试覆盖）
 
 ## P0：影响 skill 正确使用
 
 - [x] **更新 `SKILL.md` frontmatter description**：已加入语音、表情、撤回、引用、合并转发、完整性校验、4.1/4.2 原生。
 - [x] **修正 SKILL 命令示例**：已改为 4.2 `wechat42-export.mjs` / 4.1 `wechat41-export.mjs`，并注明 `wechat-export.mjs` 是内部主命令。
-- [ ] **补 4.1 `doctor`**：检查 config、`decryptKey`/`ntKey`、`sqlcipher3`、work、sessions；给出明确下一步。
+- [ ]（暂缓）**补 4.1 `doctor`**：检查 config、`decryptKey`/`ntKey`、`sqlcipher3`、work、sessions；给出明确下一步。
 - [x] **修 native work 重建条件**：`needWork` 已包含 `nativeDefault`。
 - [x] **补清理链**：4.1 `clean` 删除 `wechat41/work`/`_stickers`/映射临时文件；4.2 `clean` 删除 `baseDir/_stickers`。
-- [ ] **4.1 work 隔离/原子化**：按账号分目录；解密写临时文件后原子改名；加 `--force`；避免半成品/mtime 跳过坏文件。
-- [ ] **4.1 真实兼容性验证**：真实 4.1 数据跑 sessions/contacts/export/voice/sticker/revoke/audit；确认 `server_id` 列、`decryptKey` 语义、`ntKey+ntSalt` 变体。
-- [ ] **4.1 图片链路**：验证 4.1 图片 key/缓存布局；当前 `prepare_target_images` 使用 4.2 的 `find_codes()`，真机可能全缺失。
+- [ ]（暂缓）**4.1 work 隔离/原子化**：按账号分目录；解密写临时文件后原子改名；加 `--force`；避免半成品/mtime 跳过坏文件。
+- [ ]（暂缓）**4.1 真实兼容性验证**：真实 4.1 数据跑 sessions/contacts/export/voice/sticker/revoke/audit；确认 `server_id` 列、`decryptKey` 语义、`ntKey+ntSalt` 变体。
+- [ ]（暂缓）**4.1 图片链路**：验证 4.1 图片 key/缓存布局；当前 `prepare_target_images` 使用 4.2 的 `find_codes()`，真机可能全缺失。
 - [x] **native 下尊重 `--no-voice-map` / `--no-sticker-map`**：4.1/4.2 native `--media` 已按环境变量跳过语音/表情。
 
 ## P1：可靠性/性能/测试
@@ -44,7 +45,7 @@
 
 ## P2：能力补全（非 UI）
 
-- [ ] 4.1 真机 canary（图片/表情/语音/撤回/audit）
+- [ ]（暂缓）4.1 真机 canary（图片/表情/语音/撤回/audit）
 - [ ] 真实 V2 视频、普通 WXGF HEVC 解码
 - [ ] 公众号正文、合并转发内层媒体（CDN）
 - [ ] 红包/转账/位置/名片/小程序等特殊消息结构化

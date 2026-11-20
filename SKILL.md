@@ -20,11 +20,13 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 
 **适用**
 
-- Windows 10/11 上的微信 4.x 桌面客户端（重点验证路径）
-- 微信 3.x 为尽力兼容：视频目录按 `FileStorage/Video` 兜底
+- Windows 10/11 上的微信 4.2.x 桌面客户端（当前维护路径）
+- 微信 4.1 / 3.x 代码保留或尽力兼容，但**不在当前维护/验收范围**
 - 用户本人已登录、且有权访问的本地数据
 
 > **版本提示**：`weflow-cli` 当前验证到微信 4.1.15.56。微信 **4.2** 不走 `weflow-cli init`：由 vendor 提取每库 raw key、解密到 `work/`，默认用 `native-backend.py` 直接导出；`--legacy-weflow` 才构造 sandbox 给 `weflow-cli` 读。`--check` 会输出 `wechatCompatibility.verdict`。
+>
+> **当前维护范围**：微信 4.2.x。4.1 代码保留但暂不维护/未真机验证；旧实现见 tag `archive-main-python-4.1-2026-11-18`。安全边界见 [`SECURITY.md`](SECURITY.md)，升级排查见 [`VERSION_MAINTENANCE.md`](VERSION_MAINTENANCE.md)，参考项目见 [`REFERENCES.md`](REFERENCES.md)。
 
 **不适用**
 

@@ -4,7 +4,7 @@
 
 > 仅用于用户本人设备上、本人已登录并有权访问的微信数据。导出内容含第三方个人信息，请勿上传或公开。
 
-当前功能、已知限制和待办见 **[STATUS.md](STATUS.md)** 与 **[TODO.md](TODO.md)**；设计细节见 `DESIGN.md`，暂不实现的需求见 `BACKLOG.md`。
+当前功能、已知限制和待办见 **[STATUS.md](STATUS.md)** 与 **[TODO.md](TODO.md)**；设计细节见 `DESIGN.md`，暂不实现的需求见 `BACKLOG.md`。安全边界见 **[SECURITY.md](SECURITY.md)**，版本升级排查见 **[VERSION_MAINTENANCE.md](VERSION_MAINTENANCE.md)**，参考项目与第三方声明见 **[REFERENCES.md](REFERENCES.md)** / **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**。
 
 ## 它解决什么
 
@@ -35,8 +35,9 @@
 - 合并转发：展开内层文字/文件名/发送者/时间（HTML `<details>`、Markdown 引用块）
 - 按时间（`--from/--to/--date/--days`）、按群、按个人
 - 公众号批量导出（`--all-official`）
-- 微信 4.1 及以下（`wechat41-export.mjs`，默认原生）与微信 4.2（`wechat42-export.mjs`，默认原生）
-  - **注意**：4.2 的“核心已 vendor”只指密钥提取/解密/消息解析不再依赖外部 `wechat-exporter` clone；4.1/4.2 读取/导出默认都已切到原生后端，`--legacy-weflow` 才走 `weflow-cli`。
+- 微信 4.2（`wechat42-export.mjs`，默认原生，当前维护）
+- 微信 4.1（`wechat41-export.mjs`，代码保留但**暂不维护/未真机验证**；旧实现归档在 tag `archive-main-python-4.1-2026-11-18`）
+  - **注意**：4.2 的“核心已 vendor”只指密钥提取/解密/消息解析不再依赖外部 `wechat-exporter` clone；4.2 默认原生后端，`--legacy-weflow` 才走 `weflow-cli`。
 - V2 加密视频自动解码
 - HTML / Markdown / JSONL / manifest / media 包
 - `doctor` / `compat.json` / `check-updates`
@@ -407,6 +408,11 @@ STATUS.md                    # 当前功能、限制与按优先级排列的待�
 TODO.md                      # 当前待办（P0/P1/P2；不含 GUI/工程化界面）
 README.md / DESIGN.md        # 说明与设计
 BACKLOG.md                   # 已记录、暂不实现的需求（收藏等）
+SECURITY.md                  # 安全边界、密钥/网络/本地产物
+VERSION_MAINTENANCE.md       # 微信升级排查手册
+REFERENCES.md                # 参考项目清单
+THIRD_PARTY_NOTICES.md       # 第三方代码/依赖/许可证
+NOTICE                       # 版权与来源声明
 docs/MERGE_PLAN.md           # 分支收敛计划（main → feat，含跟踪表）
 compat.json                  # 微信版本 → 上游 commit → 验证结果
 scripts/
@@ -457,6 +463,7 @@ tests/
 
 升级后**先查参考库，不要从零重写**。完整矩阵和入口函数见：
 
+- [`VERSION_MAINTENANCE.md`](VERSION_MAINTENANCE.md) → 4.2 升级排查手册
 - `SKILL.md` → “后续微信版本升级参考”
 - `DESIGN.md` → “13. 后续微信版本升级参考库与排查手册”
 
@@ -484,12 +491,14 @@ tests/
 
 - 本仓库：**MIT**（根 `LICENSE`）。
 - `scripts/vendor/wechat42/`：来自 MIT 项目 [`TangGod991021/wechat-exporter`](https://github.com/TangGod991021/wechat-exporter)，保留其 `LICENSE` 与 `NOTICE.md`。
-- 读取底座 `weflow-cli`：MIT。
+- 读取底座 `weflow-cli`：MIT（仅 `--legacy-weflow` 可选）。
 - `WeFlow`：CC BY-NC-SA 4.0，仅作设计参考，未复制代码。
+- 完整第三方清单见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
 ## 参考
 
-- [weflow-cli](https://github.com/zhuobichen/weflow-cli)：本项目的解密/查询/导出底座
+- [`REFERENCES.md`](REFERENCES.md)：参考项目、许可证和升级排查用法
+- [weflow-cli](https://github.com/zhuobichen/weflow-cli)：legacy 读取/导出底座
 - [WeFlow](https://github.com/hicccc77/WeFlow)：本地 GUI，查看、分析、多格式导出与 HTTP API
 - [chatlog](https://github.com/sjzar/chatlog)：Go 实现，HTTP API + MCP，支持媒体
 - PyWxDump / MemoTrace：历史工具，截至 2026 年已出现删库/停更，不建议作为新依赖
