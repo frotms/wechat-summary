@@ -4,7 +4,7 @@
 
 > 仅用于用户本人设备上、本人已登录并有权访问的微信数据。导出内容含第三方个人信息，请勿上传或公开。
 
-当前功能、已知限制和待办见 **[STATUS.md](STATUS.md)** 与 **[TODO.md](TODO.md)**；设计细节见 `DESIGN.md`，暂不实现的需求见 `BACKLOG.md`。安全边界见 **[SECURITY.md](SECURITY.md)**，版本升级排查见 **[VERSION_MAINTENANCE.md](VERSION_MAINTENANCE.md)**，参考项目与第三方声明见 **[REFERENCES.md](REFERENCES.md)** / **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**。
+当前功能、已知限制和待办见 **[STATUS.md](STATUS.md)** 与 **[TODO.md](TODO.md)**；设计细节见 `DESIGN.md`，暂不实现的需求见 `BACKLOG.md`。安全边界见 **[SECURITY.md](SECURITY.md)**，版本升级排查见 **[VERSION_MAINTENANCE.md](VERSION_MAINTENANCE.md)**，参考项目与第三方声明见 **[REFERENCES.md](REFERENCES.md)** / **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**。产物字段见 **[docs/OUTPUT_SCHEMA.md](docs/OUTPUT_SCHEMA.md)**。
 
 ## 它解决什么
 
@@ -35,6 +35,10 @@
 - 合并转发：展开内层文字/文件名/发送者/时间（HTML `<details>`、Markdown 引用块）
 - 转账/红包/位置/名片：结构化金额、标题、经纬度、名片账号；HTML 卡片/地图链接、Markdown 链接
 - 4.2 离线 key 缓存：`setup` 把逐库 raw key 保存到 `<baseDir>/keys.json`，后续可复用；`clean --purge-keys` 删除
+- 联系人 / 群成员 / 头像：`contacts --output <目录>` 生成 `contacts.json`、`groups.json`、`avatars/`
+- 跨会话按人 / 全局时间线：`person --sender "张三"`、`timeline`；`--incremental` 基于 `state.json` 追加
+- 可选联网：`--fetch-articles`（仅 `mp.weixin.qq.com`）、`--download-stickers`（Tencent 白名单），默认关闭
+- `decrypt-image`：单个图片 `.dat`/V2 文件解密
 - 按时间（`--from/--to/--date/--days`）、按群、按个人
 - 公众号批量导出（`--all-official`）
 - 微信 4.2（`wechat42-export.mjs`，默认原生，当前维护）
@@ -89,6 +93,9 @@ ln -s "$(pwd)" ~/.claude/skills/wechat-export
 
 # Windows PowerShell（管理员或开发者模式）
 New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.claude\skills\wechat-export" -Target (Get-Location)
+
+# Windows 无管理员权限时用 junction
+New-Item -ItemType Junction -Path "$env:USERPROFILE\.claude\skills\wechat-export" -Target (Get-Location)
 ```
 
 也可以直接复制目录。Claude Code 读取的是目录下的 `SKILL.md`；`scripts/`、`tests/` 一起复制即可。
@@ -154,6 +161,32 @@ node scripts/wechat42-export.mjs --all-groups --days 3 --types text,video
 # 精确指定会话 ID，输出到自定义目录
 node scripts/wechat42-export.mjs --target "123@chatroom" --date 2026-01-05 \
   --output "D:\\wechat-exports\\项目群"
+```
+
+### 5. 联系人 / 跨会话 / 可选联网
+
+```bash
+# 联系人、群成员、头像
+node scripts/wechat42-export.mjs contacts --output "D:\\wechat-exports\\contacts"
+
+# 某人在所有会话的发言
+node scripts/wechat42-export.mjs person --sender "张三" --output "D:\\wechat-exports\\person-张三"
+
+# 全局时间线（跨所有会话）
+node scripts/wechat42-export.mjs timeline --output "D:\\wechat-exports\\timeline"
+
+# 只追加新消息（同一 --output 重复运行）
+node scripts/wechat42-export.mjs timeline --output "D:\\wechat-exports\\timeline" --incremental
+
+# 公众号正文 / 本机缺失表情（显式联网，默认关闭）
+node scripts/wechat42-export.mjs --target "群" --days 7 \
+  --types text,link --fetch-articles --output "D:\\wechat-exports\\群"
+node scripts/wechat42-export.mjs --target "群" --days 7 \
+  --types emoji --download-stickers --output "D:\\wechat-exports\\群"
+
+# 单个图片 .dat 解密
+node scripts/wechat42-export.mjs decrypt-image "C:\\...\\xxx.dat" \
+  --output "D:\\wechat-exports\\decoded.png"
 ```
 
 ## 微信 4.2（原生后端 + 可选 weflow-cli）
@@ -366,6 +399,9 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 | `--full-images` | 用原图而不是缓存缩略图（慢） |
 | `--no-video-scan` | 不扫描 `msg/video` |
 | `--video-root` | 指定微信账号目录或视频目录 |
+| `--fetch-articles` | 显式联网抓取公众号正文（仅 `mp.weixin.qq.com`） |
+| `--download-stickers` | 显式联网下载本机缺失的表情（Tencent 白名单） |
+| `--with-media-map` | native 默认跳过冗余 media-map；加此参数强制生成 |
 | `--output` | 输出目录（默认 `~/.wechat-export/<时间戳>`） |
 | `--json` | stdout 输出机器可读结果 |
 | `--dry-run` | 只打印计划，不写文件 |
@@ -403,7 +439,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 npm test
 ```
 
-当前 59 项 Node 测试 + 46 项 Python 测试，覆盖：
+当前 63 项 Node 测试 + 59 项 Python 测试，覆盖：
 
 - 参数解析、日期窗口、类型映射
 - 文件 appmsg / 视频 md5 / 群发送者前缀 / 链接 fallback
@@ -414,6 +450,8 @@ npm test
 - 撤回记录：批量撤回匹配原消息、单条撤回孤立记录、HTML/Markdown 标记
 - 引用/合并转发：`refermsg` → `quote`、`recorditem` → `records`；HTML/Markdown 渲染
 - 转账/红包/位置/名片：金额、标题、经纬度、名片账号进入 JSONL；HTML/Markdown 结构化展示
+- 联系人/群成员/头像、跨会话 person/timeline、`--incremental` 状态追加
+- 公众号正文/表情 CDN 的域名白名单、文章正文提取、单文件 `decrypt-image`
 - 文本型导出跳过媒体/表情映射（不扫媒体、不扫 sticker seed）
 - 只读命令白名单、输出路径保护
 - Level 2 原生 4.2 后端：sessions/contacts/export json（含图片/文件）
@@ -433,12 +471,16 @@ REFERENCES.md                # 参考项目清单
 THIRD_PARTY_NOTICES.md       # 第三方代码/依赖/许可证
 NOTICE                       # 版权与来源声明
 docs/MERGE_PLAN.md           # 分支收敛记录（已完成；只剩 main）
+docs/OUTPUT_SCHEMA.md        # messages/manifest/audit/contacts 字段定义
 requirements.txt             # Python 依赖（4.2 原生/语音/表情）
 compat.json                  # 微信版本 → 上游 commit → 验证结果
 scripts/
   wechat-export.mjs          # 内部主命令（4.1/4.2 wrapper 调用；调试用）
   native-weflow.mjs          # Level 2：weflow-cli 兼容 shim（4.1/4.2 默认）
   native-backend.py          # Level 2：原生读取/导出（sessions/contacts/export）
+  wechat-contacts-export.py  # 联系人/群成员/头像导出
+  wechat-decrypt-image.py    # 单文件图片 .dat/V2 解密
+  wechat-person-export.py    # 跨会话按人/全局时间线/增量
   check.mjs                  # 环境体检入口
   wechat42-export.mjs        # 微信 4.2 后端入口
   wechat41-export.mjs        # 微信 4.1 入口（默认原生；--legacy-weflow 回退）

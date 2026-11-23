@@ -17,6 +17,10 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 - 内容还原：引用消息（`quote`，HTML 引用块）、合并转发/笔记（`records`，HTML 展开列表）
 - 特殊消息：转账金额、红包、位置经纬度、名片账号进入 JSONL；HTML/Markdown 结构化展示
 - 4.2 离线 key 缓存：`setup` 成功后保存 `<baseDir>/keys.json`；后续 `setup` 优先用缓存，不需要微信重新登录/运行。缓存失效会自动回退到进程提取；`clean` 默认保留，`--purge-keys` 删除。
+- 联系人/群成员/头像：`contacts --output <目录>`
+- 跨会话按人/全局时间线：`person --sender`、`timeline`；`--incremental` 使用 `state.json`
+- 可选联网：`--fetch-articles`（仅 `mp.weixin.qq.com`）、`--download-stickers`（Tencent 白名单），默认关闭
+- 单文件解密：`decrypt-image <file> --output <path>`
 
 ## 适用与边界
 
@@ -102,6 +106,21 @@ node scripts/wechat42-export.mjs --target "50055365721@chatroom" --date 2026-11-
 # 关键词搜索（4.2）
 node scripts/wechat42-export.mjs search --query 1684X --from 2026-08-17 --to 2026-11-17
 
+# 联系人/群成员/头像
+node scripts/wechat42-export.mjs contacts --output "D:\\exports\\contacts"
+
+# 跨会话按人 / 全局时间线 / 增量
+node scripts/wechat42-export.mjs person --sender "张三" --output "D:\\exports\\person"
+node scripts/wechat42-export.mjs timeline --output "D:\\exports\\timeline"
+node scripts/wechat42-export.mjs timeline --output "D:\\exports\\timeline" --incremental
+
+# 可选联网：公众号正文 / 本机缺失表情
+node scripts/wechat42-export.mjs --target "群" --days 7 --types text,link --fetch-articles --output "D:\\exports\\群"
+node scripts/wechat42-export.mjs --target "群" --days 7 --types emoji --download-stickers --output "D:\\exports\\群"
+
+# 单个图片解密
+node scripts/wechat42-export.mjs decrypt-image "C:\\...\\xxx.dat" --output "D:\\exports\\decoded.png"
+
 # 查看/清理/体检/更新检查
 node scripts/wechat42-export.mjs status
 node scripts/wechat42-export.mjs doctor
@@ -109,6 +128,7 @@ node scripts/wechat42-export.mjs check-updates
 node scripts/wechat42-export.mjs clean   # 删除 sandbox/明文 work/home/_stickers，保留导出结果和 keys.json
 node scripts/wechat42-export.mjs clean --purge-keys  # 同时删除离线 key 缓存
 node scripts/wechat41-export.mjs clean   # 删除 wechat41/work/_stickers/映射临时文件
+# --refresh 会重建 work，并强制刷新 native 文件索引/视频索引
 ```
 
 公众号批量：

@@ -3,7 +3,7 @@
 > 建立：2026-11-19  
 > feat 基线：`80c7573`（tag `baseline-feat-2026-11-19`）  
 > main 归档：`9582320`（tag `archive-main-python-4.1-2026-11-18`）  
-> 基线测试：47 项 Node + 29 项 Python 全绿（Phase 0）；收口后当前 59 + 46
+> 基线测试：47 项 Node + 29 项 Python 全绿（Phase 0）；收口后当前 63 + 59
 
 ## 0. 目标
 
@@ -58,8 +58,8 @@ main 不是被“合并进来”，而是作为**能力库**：只移植其中 f
 | 2 ⏸ | 4.1 真机对齐（图片 key、媒体布局、hardlink/resource 表） | main | feat 4.1 native | 2026-11-20 用户确认先不管 4.1；代码保留，暂缓验收 |
 | 3 ✅ | 引用消息 `refermsg` 还原 | main | Python 解析层 | 2026-11-19 完成；HTML/JSONL 可验证发送者/时间/原文 |
 | 4 ✅ | 合并转发 `recorditem` 内层展开 | main | Python 解析层 | 2026-11-19 完成；内层文字/文件名/发送者/时间齐全 |
-| 5 | 公众号正文抓取 `--fetch-articles` | main | 可选网络模块 | 默认关闭；域名白名单 + 重定向复核 |
-| 6 | 表情 CDN 补下载 `--download-stickers` | main | 可选网络模块 | 默认关闭；只处理白名单域名 |
+| 5 ✅ | 公众号正文抓取 `--fetch-articles` | main | 可选网络模块 | 2026-11-23 完成；仅 `mp.weixin.qq.com`，默认关闭 |
+| 6 ✅ | 表情 CDN 补下载 `--download-stickers` | main | 可选网络模块 | 2026-11-23 完成；Tencent 白名单，默认关闭 |
 
 > 2026-11-19 核查：本机运行微信 4.2.0.13，唯一账号目录是 4.2 数据；`Program Files` 的 4.1.5.30 只是残留安装。第 2 项需要外部 4.1.x 账号数据/备份才能验收，暂缓。
 
@@ -74,9 +74,9 @@ main 不是被“合并进来”，而是作为**能力库**：只移植其中 f
 
 | # | 能力 | 来源 | 落到哪 | 验收 |
 | --- | --- | --- | --- | --- |
-| 7 | `decrypt-image` 单文件调试入口 | main | Python 工具 | 单文件可解，有测试 |
+| 7 ✅ | `decrypt-image` 单文件调试入口 | main | Python 工具 | 2026-11-23 完成；V2 + XOR 测试 |
 | 8 ✅ | 单入口（4.2 为准） | feat | `wechat-export.mjs` | 用户入口统一为 `wechat42-export.mjs`；4.1 暂缓，不做自动分发 |
-| 9 | 输出 schema 统一 | 双方 | bundle/manifest | 只保留一套 JSONL 字段，补 main 的 `missing.reason` |
+| 9 ✅ | 输出 schema 统一 | 双方 | bundle/manifest | 2026-11-23 完成：`mediaStatus`/`missingReason` + `docs/OUTPUT_SCHEMA.md` |
 | 10 ✅ | 文档/测试收编 | main | feat | 2026-11-20 完成：SECURITY/VERSION_MAINTENANCE/REFERENCES/THIRD_PARTY_NOTICES/NOTICE 已移植改写；CI 补 `sqlcipher3-wheels` |
 
 ## 5. Phase 2：分支收口（已完成 2026-11-20）

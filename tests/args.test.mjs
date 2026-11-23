@@ -10,6 +10,12 @@ test('parseArgv keeps repeatable target flags', () => {
   assert.equal(opts.days, '7')
 })
 
+test('parseArgv accepts opt-in article/sticker flags', () => {
+  const { opts } = parseArgv(['--fetch-articles', '--download-stickers'])
+  assert.equal(opts.fetchArticles, true)
+  assert.equal(opts.downloadStickers, true)
+})
+
 test('parseArgv supports --no-* booleans', () => {
   const { opts } = parseArgv(['--no-html', '--no-video-scan', '--no-media'])
   assert.equal(opts.html, false)

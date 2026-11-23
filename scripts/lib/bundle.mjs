@@ -359,6 +359,29 @@ async function buildRecord(message, options) {
     }
   }
 
+  if (manifest?.kind === 'article' && source) {
+    const pathText = String(manifest.path || '')
+    const slash = pathText.lastIndexOf('/')
+    const htmlName = manifest.html ? basename(String(manifest.html)) : ''
+    const htmlPath = htmlName
+      ? `raw/${slash >= 0 ? `${pathText.slice(0, slash)}/` : ''}${htmlName}`
+      : ''
+    record.article = {
+      title: manifest.title || record.link?.title || '',
+      url: manifest.url || record.link?.url || '',
+      path: `raw/${pathText}`,
+      html: htmlPath,
+    }
+  }
+
+  const mediaKeys = ['image', 'file', 'video', 'voice', 'sticker', 'poster']
+  const hasMedia = mediaKeys.some((key) => Boolean(record.media?.[key]))
+  const missing = Array.isArray(record.missing) ? record.missing : []
+  record.mediaStatus = missing.length
+    ? (hasMedia ? 'partial' : 'missing')
+    : (hasMedia ? 'exported' : 'none')
+  if (missing.length) record.missingReason = missing[0].reason
+
   return record
 }
 
@@ -541,6 +564,7 @@ export async function buildTargetBundle(options) {
 
   const manifest = {
     schema: 'wechat-export-bundle/v1',
+    messageSchema: 'wechat-export-message/v1',
     generatedAt: new Date().toISOString(),
     target: {
       id: target.id,

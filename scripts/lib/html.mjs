@@ -76,6 +76,13 @@ function renderMedia(record) {
       + `<span class="link-url">${escapeHtml(record.link.url)}</span></a>`)
   }
 
+  if (record.article?.path) {
+    parts.push(`<a class="article-card" href="${mediaUrl(record.article.path)}" target="_blank" rel="noopener">`
+      + `<span class="article-icon">📄</span>`
+      + `<span class="article-title">${escapeHtml(record.article.title || '公众号正文')}</span>`
+      + `<span class="article-url">${escapeHtml(record.article.url || '')}</span></a>`)
+  }
+
   return parts.join('')
 }
 
@@ -179,6 +186,7 @@ function renderMessage(record) {
     record.fileName,
     record.link?.title,
     record.link?.url,
+    record.article?.title,
     record.quote?.text,
     ...(record.records || []).map((item) => item.text),
     record.amount,
@@ -384,6 +392,15 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 }
 .link-title { font-weight: 600; }
 .link-url { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.article-card {
+  display: flex; flex-direction: column; gap: 2px; margin-top: 6px; padding: 9px 11px;
+  border: 1px solid var(--line); border-left: 3px solid var(--brand); border-radius: 8px;
+  background: var(--panel); color: var(--text); text-decoration: none;
+}
+.article-card:hover { border-color: var(--brand); }
+.article-icon { font-size: 16px; }
+.article-title { font-weight: 600; }
+.article-url { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .quote {
   margin-top: 6px; padding: 6px 9px; border-left: 3px solid var(--line); border-radius: 6px;
   background: color-mix(in srgb, var(--panel) 72%, transparent); font-size: 12px; color: var(--muted);

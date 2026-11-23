@@ -95,6 +95,11 @@ export function renderMarkdown({ target, records, manifest }) {
       lines.push('')
       lines.push(`[${record.link.title || record.link.url}](${record.link.url})`)
     }
+    if (record.article?.path) {
+      lines.push('')
+      const href = String(record.article.path).replace(/\)/g, '%29')
+      lines.push(`[📄 ${record.article.title || '公众号正文'}](${href})`)
+    }
     if (record.missing?.length) {
       lines.push('')
       for (const item of record.missing) {

@@ -67,6 +67,92 @@ test('bundle carries structured transfer, red-packet, location and card fields',
   }
 })
 
+test('bundle exposes mediaStatus and missingReason for missing media', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wechat-bundle-missing-'))
+  try {
+    const bundleDir = join(root, 'bundle')
+    const rawDir = join(root, 'raw')
+    await mkdir(rawDir, { recursive: true })
+    const rawMessages = [{
+      localId: 1, serverId: 's1', createTime: 1767578400, isSend: 0,
+      senderUsername: 'wxid_lisi', sender: '李四',
+      messageType: 'image', parsedContent: '[图片]',
+      content: '<msg><img md5="11111111111111111111111111111111"/></msg>',
+      rawContent: '<msg><img md5="11111111111111111111111111111111"/></msg>',
+    }]
+    await buildTargetBundle({
+      target: { id: '123@chatroom', name: '项目群', kind: 'group' },
+      rawMessages,
+      rawDir,
+      mediaManifest: null,
+      mediaMap: null,
+      revokeMap: null,
+      videoIndex: null,
+      contactMap: new Map([['wxid_lisi', '李四']]),
+      bundleDir,
+      types: new Set(['image']),
+      mediaState: null,
+      warnings: [],
+      meta: {},
+    })
+    const lines = (await readFile(join(bundleDir, 'messages.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line))
+    assert.equal(lines[0].mediaStatus, 'missing')
+    assert.equal(lines[0].missingReason, 'image-not-local')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('bundle links fetched article bodies', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wechat-bundle-article-'))
+  try {
+    const bundleDir = join(root, 'bundle')
+    const rawDir = join(root, 'bundle', 'raw')
+    await mkdir(rawDir, { recursive: true })
+    const rawMessages = [{
+      localId: 1, serverId: 's1', createTime: 1767578400, isSend: 0,
+      senderUsername: 'wxid_lisi', sender: '李四',
+      messageType: 'link', parsedContent: '文章标题',
+      appUrl: 'https://mp.weixin.qq.com/s/x', appTitle: '文章标题',
+      content: '', rawContent: '',
+    }]
+    const mediaManifest = {
+      records: {
+        '1:1767578400': {
+          kind: 'article',
+          path: 'assets/articles/a.txt',
+          html: 'assets/articles/a.html',
+          title: '文章标题',
+          url: 'https://mp.weixin.qq.com/s/x',
+        },
+      },
+    }
+    await buildTargetBundle({
+      target: { id: '123@chatroom', name: '项目群', kind: 'group' },
+      rawMessages,
+      rawDir,
+      mediaManifest,
+      mediaMap: null,
+      revokeMap: null,
+      videoIndex: null,
+      contactMap: new Map([['wxid_lisi', '李四']]),
+      bundleDir,
+      types: new Set(['link']),
+      mediaState: null,
+      warnings: [],
+      meta: {},
+    })
+    const lines = (await readFile(join(bundleDir, 'messages.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line))
+    assert.equal(lines[0].article.title, '文章标题')
+    assert.equal(lines[0].article.path, 'raw/assets/articles/a.txt')
+    assert.equal(lines[0].article.html, 'raw/assets/articles/a.html')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('bundle carries quote and merged-forward records into JSONL', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wechat-bundle-'))
   try {
@@ -127,11 +213,13 @@ test('bundle carries quote and merged-forward records into JSONL', async () => {
     assert.equal(lines[0].type, 'quote')
     assert.equal(lines[0].quote.sender, '张三')
     assert.equal(lines[0].quote.text, '原来的消息')
+    assert.equal(lines[0].mediaStatus, 'none')
     assert.equal(lines[1].type, 'history')
     assert.equal(lines[1].records.length, 2)
     assert.equal(lines[1].records[0].text, '你好')
     assert.equal(lines[1].records[1].text, '报告.pdf')
     assert.equal(lines[1].records[1].media, undefined)
+    assert.equal(lines[1].mediaStatus, 'none')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

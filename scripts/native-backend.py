@@ -22,12 +22,14 @@ for now.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import shutil
 import sqlite3
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -36,6 +38,7 @@ sys.path.insert(0, str(HERE))
 
 from vendor.wechat42.export import ChatStore  # noqa: E402
 from lib.v2_decode import MAGIC, clean_account_id, decode_v2_file, find_codes  # noqa: E402
+from lib.net import fetch_article, fetch_sticker, image_ext  # noqa: E402
 from lib.sticker import (  # noqa: E402
     any_sticker_file,
     derive_key as derive_sticker_key,
@@ -242,11 +245,13 @@ def prepare_target_stickers(work: Path, account: Path, msgs):
     wxid = clean_account_id(account.name)
     seed_file = work / "_native_sticker_seed"
     seed = ""
+    seed_source = "cache"
     try:
         seed = seed_file.read_text(encoding="utf-8").strip()
     except OSError:
         pass
     if not seed:
+        seed_source = "process"
         found = find_sticker_seed(wxid, sample)
         if found:
             seed = str(found)
@@ -260,6 +265,27 @@ def prepare_target_stickers(work: Path, account: Path, msgs):
         return {}
     key = derive_sticker_key(seed, wxid)
     out_dir = work / "_native_stickers"
+    if seed_source == "cache":
+        probe_id = next(iter(ids))
+        probe, _mime = prepare_sticker(dirs, probe_id, key, str(out_dir))
+        if not probe:
+            print("! [NATIVE_STICKER_SEED_STALE] 缓存 seed 无法解密样本；重新探测",
+                  file=sys.stderr)
+            found = find_sticker_seed(wxid, sample)
+            if not found:
+                try:
+                    seed_file.unlink()
+                except OSError:
+                    pass
+                print("! [NATIVE_STICKER_SEED_MISSING] 旧 seed 失效且无法重新获取；"
+                      "表情将标记缺失（保持微信运行或配置 emoticonSeed）", file=sys.stderr)
+                return {}
+            seed = str(found)
+            key = derive_sticker_key(seed, wxid)
+            try:
+                seed_file.write_text(seed, encoding="utf-8")
+            except OSError:
+                pass
     result = {}
     for md5 in ids:
         path, _mime = prepare_sticker(dirs, md5, key, str(out_dir))
@@ -269,16 +295,30 @@ def prepare_target_stickers(work: Path, account: Path, msgs):
 
 
 
+FILE_INDEX_SCHEMA = "wechat-export-file-index/v1"
+
+
 def file_index(work: Path, account: Path):
     cache = work / "_native_file_index.json"
-    if cache.is_file():
+    roots = [account / "msg" / "file", account / "msg" / "attach"]
+    root_names = [str(path) for path in roots]
+    try:
+        ttl = max(0, int(os.environ.get("WEFLOW_NATIVE_FILE_INDEX_TTL", "600")))
+    except ValueError:
+        ttl = 600
+    force = os.environ.get("WEFLOW_NATIVE_REFRESH_FILE_INDEX") == "1"
+    if cache.is_file() and not force:
         try:
-            return json.loads(cache.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
+            payload = json.loads(cache.read_text(encoding="utf-8"))
+            built = float(payload.get("builtAt") or 0)
+            if (payload.get("schema") == FILE_INDEX_SCHEMA
+                    and payload.get("roots") == root_names
+                    and time.time() - built <= ttl):
+                return payload.get("files") or {}
+        except (OSError, ValueError, TypeError) as exc:
             print(f"! [NATIVE_FILE_INDEX_INVALID] 文件索引缓存不可读（{exc}）；已重建",
                   file=sys.stderr)
     index = {}
-    roots = [account / "msg" / "file", account / "msg" / "attach"]
     for root in roots:
         if not root.is_dir():
             continue
@@ -287,9 +327,14 @@ def file_index(work: Path, account: Path):
                 low = name.lower()
                 if low.endswith((".dat", ".mp4", ".thumb", ".db")):
                     continue
-                index.setdefault(name.lower(), os.path.join(dirpath, name))
+                index.setdefault(low, os.path.join(dirpath, name))
     try:
-        cache.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+        cache.write_text(json.dumps({
+            "schema": FILE_INDEX_SCHEMA,
+            "builtAt": time.time(),
+            "roots": root_names,
+            "files": index,
+        }, ensure_ascii=False), encoding="utf-8")
     except OSError:
         pass
     return index
@@ -335,6 +380,7 @@ def write_assets(store, msgs, output: Path, talker: str, account: Path, work: Pa
     videos_dir = assets / "videos"
     voices_dir = assets / "voice"
     stickers_dir = assets / "stickers"
+    articles_dir = assets / "articles"
     stickers = prepare_target_stickers(work, account, msgs)
     for item in msgs:
         key = f'{item.get("local_id")}:{item.get("ts")}'
@@ -401,6 +447,39 @@ def write_assets(store, msgs, output: Path, talker: str, account: Path, work: Pa
                 if poster_target:
                     entry["poster"] = f"{assets_name}/images/{poster_target.name}"
                 manifest["messages"][key] = entry
+        elif kind in ("link", "text"):
+            if os.environ.get("WEFLOW_NATIVE_FETCH_ARTICLES") != "1":
+                continue
+            parsed = item.get("content") or {}
+            raw = str(item.get("raw_content") or "")
+            url = str(parsed.get("url") or "")
+            if not url:
+                match = re.search(r'https?://mp\.weixin\.qq\.com/[^\s<>"\']+', raw)
+                url = match.group(0).rstrip(").,;，。；）") if match else ""
+            if "mp.weixin.qq.com" not in url:
+                continue
+            try:
+                page, title, text = fetch_article(url)
+            except Exception as exc:  # noqa: BLE001
+                print(f"! [NATIVE_ARTICLE_FETCH_FAILED] {exc}", file=sys.stderr)
+                continue
+            if not text:
+                print("! [NATIVE_ARTICLE_EMPTY] 文章抓取成功但未提取到正文",
+                      file=sys.stderr)
+            digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+            articles_dir.mkdir(parents=True, exist_ok=True)
+            html_path = articles_dir / f"{digest}.html"
+            txt_path = articles_dir / f"{digest}.txt"
+            html_path.write_text(page, encoding="utf-8", errors="replace")
+            txt_path.write_text(text or "", encoding="utf-8")
+            manifest["messages"][key] = {
+                "path": f"{assets_name}/articles/{txt_path.name}",
+                "html": f"{assets_name}/articles/{html_path.name}",
+                "kind": "article",
+                "title": title or str(parsed.get("title") or ""),
+                "url": url,
+                "bytes": txt_path.stat().st_size,
+            }
         elif kind == "voice":
             if os.environ.get("WEFLOW_NATIVE_NO_VOICE") == "1":
                 continue
@@ -420,6 +499,16 @@ def write_assets(store, msgs, output: Path, talker: str, account: Path, work: Pa
             source = stickers.get(md5, "")
             ext = os.path.splitext(source)[1] or ".png"
             target = copy_asset(source, stickers_dir, f"sticker_{md5}{ext}")
+            if not target and os.environ.get("WEFLOW_NATIVE_DOWNLOAD_STICKERS") == "1":
+                try:
+                    data, ext = fetch_sticker(str(item.get("raw_content") or ""))
+                except Exception as exc:  # noqa: BLE001
+                    print(f"! [NATIVE_STICKER_DOWNLOAD_FAILED] {exc}", file=sys.stderr)
+                    continue
+                stickers_dir.mkdir(parents=True, exist_ok=True)
+                stem = md5 or hashlib.sha1(data).hexdigest()[:12]
+                target = stickers_dir / f"sticker_{stem}{ext}"
+                target.write_bytes(data)
             if target:
                 manifest["messages"][key] = {
                     "path": f"{assets_name}/stickers/{target.name}",
@@ -521,7 +610,8 @@ def cmd_export(args):
     since = args.date or args.since or None
     until = args.date or args.until or None
     limit = int(args.limit or 0) or None
-    if args.media:
+    if (args.media or args.refresh_video_index
+            or os.environ.get("WEFLOW_NATIVE_REFRESH_VIDEO_INDEX") == "1"):
         store.refresh_video_index()
     msgs = store.messages(args.talker, since=since, until=until, limit=limit)
     boundary = export_boundary(store, args.talker, since, until)
@@ -597,6 +687,7 @@ def main():
         ap.add_argument("--limit", type=int, default=0)
         ap.add_argument("--output", required=True)
         ap.add_argument("--media", action="store_true")
+        ap.add_argument("--refresh-video-index", action="store_true")
         ap.add_argument("--contract", default="weflow-v1")
         ap.add_argument("--non-interactive", action="store_true")
         ap.add_argument("--json", action="store_true")

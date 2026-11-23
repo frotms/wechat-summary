@@ -1,6 +1,6 @@
 # 当前状态与待办
 
-> 版本：1.10.5（2026-11-20）  
+> 版本：1.11.0（2026-11-23）  
 > 分支：仅 `main`（feat 已于 2026-11-20 收口并删除；旧 main 见 tag `archive-main-python-4.1-2026-11-18`）  
 > 验证环境：Windows 10 + 微信桌面版 4.2.0.13  
 > 详细设计见 `DESIGN.md`；按优先级排列的待办见 `TODO.md`；已记录但暂不实现的需求见 `BACKLOG.md`。
@@ -29,10 +29,18 @@
 | 4.2 后端 | ✅ | 内置 vendor（wechat-exporter MIT）+ sandbox；默认 `native-backend.py` 读取 `work/`，4.2 导出不再依赖 `weflow-cli`（`--legacy-weflow` 可回退） |
 | 4.2 key 缓存 | ✅ | `setup` 保存 `<baseDir>/keys.json`；后续优先缓存，无需微信进程；`clean --purge-keys` 删除 |
 | native 媒体 | ✅ | V2 视频解码 + 封面复制；types 含 image/file 时跳过冗余 media-map；`--with-media-map` 可强制 |
+| native 缓存 | ✅ | 文件索引 TTL 600s + `--refresh` 强制刷新；视频索引可刷新；表情 seed 样本校验/重探 |
+| 联系人/群/头像 | ✅ | `contacts` → `contacts.json` / `groups.json` / `avatars/`；真实数据 10309/602/3020 |
+| 公众号正文 | ✅ 可选 | `--fetch-articles`，仅 `mp.weixin.qq.com`，默认关闭；真实 canary 已抓到 Qwen4 正文 |
+| 表情 CDN | ✅ 可选 | `--download-stickers`，Tencent 白名单，默认关闭；合成测试通过 |
+| 跨会话/时间线 | ✅ | `person --sender`、`timeline`；`--incremental` 基于 `state.json` |
+| 图片单文件解密 | ✅ | `decrypt-image`；V2 + XOR 合成测试 |
+| 输出 schema | ✅ | `mediaStatus`/`missingReason`；`docs/OUTPUT_SCHEMA.md` |
+| Skill 安装 | ✅ | `~/.claude/skills/wechat-export` junction；当前会话已识别；安装路径 `--check` 通过 |
 | 4.1 后端 | ⏸ 暂缓 | 代码保留，但暂不维护/未真机验证；旧实现归档在 tag `archive-main-python-4.1-2026-11-18` |
 | 脱离 `weflow-cli` | ✅ 4.2 原生 | 4.2 默认 `native-backend.py` + `native-weflow.mjs`；4.1 代码保留但不维护；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
-| 测试 | ✅ | 59 项 Node + 46 项 Python |
+| 测试 | ✅ | 63 项 Node + 59 项 Python |
 
 ### 本机验证基线（微信 4.2.0.13）
 
@@ -52,6 +60,11 @@
 - 2026-11-20：真实 4.2 `audit --deep`：源库 275 = 原始 275，导出 235 + 跳过 40；missing/extra/exportedNotInRaw 均为 0，boundary reliable=true
 - 2026-11-20：4.2 key 缓存：setup 保存 21 个 raw key；clean（删除 work）后 setup 使用 `source=cache`，21/21 解密，无需重新提取
 - 2026-11-20：真实媒体 canary（frotms 小号版，12 条）：图片 2/2、语音 2/2 导出；视频 1 条本机未缓存标记 `video-not-local`；native 跳过 media-map，`audit --deep` 0 missing/extra
+- 2026-11-23：Skill 安装验证：junction 到 `~/.claude/skills/wechat-export`，当前会话识别 `wechat-export`；安装路径 `--check` 使用 key 缓存通过
+- 2026-11-23：联系人 canary：10309 联系人 / 602 群 / 3020 头像
+- 2026-11-23：公众号正文 canary：官方群 link/text 消息抓取到 Qwen4 正文，写入 `media/articles/*.txt/.html`；HTML 正文卡与本地 html 路径验证通过
+- 2026-11-23：`decrypt-image` 真实 canary：从 account 派生 key，输出 PNG 39839 bytes
+- 2026-11-23：person/timeline canary：person 38 条（50 会话）；timeline 200 条；`--incremental` 保留已有行并只追加新消息
 
 ## 二、已知限制
 
@@ -68,6 +81,9 @@
 10. **跨平台**：只在 Windows 10/11 + 微信 4.x 验证；macOS/Linux、微信 3.x 未验证。
 11. **输出安全**：导出物、`audit.json`、`revokes.json` 均为明文，无脱敏/匿名化/保留期策略。
 12. **依赖安装**：已提供 `requirements.txt`；仍需用户自己创建 venv 并安装（当前不做一键安装器/安装向导）。
+13. **联网能力**：`--fetch-articles` 只支持 `mp.weixin.qq.com`，`--download-stickers` 只支持 Tencent 白名单；默认关闭，不绕过登录/风控。
+14. **增量范围**：`--incremental` 目前用于 `person`/`timeline` 聚合视图；按会话导出仍每次生成新目录，媒体去重/断点续传未实现。
+15. **表情 CDN**：只有合成测试，尚未用真实“本机缺失表情”做 canary。
 
 ## 三、待办（按优先级）
 
@@ -109,7 +125,7 @@
 
 ```bash
 npm test                  # 59 项 Node 测试
-npm run test:py           # 46 项 Python 测试
+npm run test:py           # 59 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs audit --output "<导出目录>" --deep

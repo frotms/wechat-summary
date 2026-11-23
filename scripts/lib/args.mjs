@@ -7,6 +7,7 @@ const BOOLEAN = new Set([
   'allTime', 'media', 'fullImages', 'videoScan',
   'force', 'html', 'markdown', 'includeRaw',
   'keepRaw', 'pruneRaw', 'dryRun', 'allowPartial',
+  'fetchArticles', 'downloadStickers',
 ])
 
 const MULTI = new Set(['target', 'group', 'person', 'videoRoot'])

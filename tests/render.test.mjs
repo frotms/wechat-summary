@@ -61,6 +61,26 @@ test('history type uses the chat-history label', () => {
   assert.match(html, /聊天记录 · 2 条/)
 })
 
+test('article bodies render as local links', () => {
+  const record = fixtureRecord({
+    type: 'link',
+    text: '文章标题',
+    quote: null,
+    records: [],
+    link: { title: '文章标题', url: 'https://mp.weixin.qq.com/s/x' },
+    article: {
+      title: '文章标题',
+      url: 'https://mp.weixin.qq.com/s/x',
+      path: 'raw/assets/articles/a.txt',
+    },
+  })
+  const html = renderHtml({ target, records: [record], manifest })
+  assert.match(html, /class="article-card"/)
+  assert.match(html, /raw\/assets\/articles\/a\.txt/)
+  const md = renderMarkdown({ target, records: [record], manifest })
+  assert.match(md, /\[📄 文章标题\]\(raw\/assets\/articles\/a\.txt\)/)
+})
+
 test('special messages render structured cards and links', () => {
   const records = [
     fixtureRecord({

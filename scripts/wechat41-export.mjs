@@ -41,6 +41,8 @@ function usage() {
   --no-sticker-map                 跳过表情包映射（表情只保留文字标签）
   --sticker-seed <值>              表情包解密种子（缺省自动探测）
   --no-revoke-map                  跳过撤回记录映射
+  --fetch-articles                 显式联网抓取公众号正文（仅 mp.weixin.qq.com）
+  --download-stickers              显式联网下载本机缺失的表情（Tencent 白名单）
   --no-audit                       导出后不跑完整性校验
 
 示例:
@@ -95,6 +97,8 @@ function parseFlags(args) {
     const token = args[i]
     if (token === '--no-voice-map') { values.noVoiceMap = true; continue }
     if (token === '--no-sticker-map') { values.noStickerMap = true; continue }
+    if (token === '--fetch-articles') { values.fetchArticles = true; continue }
+    if (token === '--download-stickers') { values.downloadStickers = true; continue }
     if (token === '--no-revoke-map') { values.noRevokeMap = true; continue }
     if (token === '--no-audit') { values.noAudit = true; continue }
     if (token === '--legacy-weflow') { values.legacyWeflow = true; continue }
@@ -358,6 +362,12 @@ function nativeEnv(configPath, workDir, accountRoot, python, values = {}) {
   }
   if (values.noVoiceMap) env.WEFLOW_NATIVE_NO_VOICE = '1'
   if (values.noStickerMap) env.WEFLOW_NATIVE_NO_STICKER = '1'
+  if (values.fetchArticles) env.WEFLOW_NATIVE_FETCH_ARTICLES = '1'
+  if (values.downloadStickers) env.WEFLOW_NATIVE_DOWNLOAD_STICKERS = '1'
+  if (values.refresh) {
+    env.WEFLOW_NATIVE_REFRESH_FILE_INDEX = '1'
+    env.WEFLOW_NATIVE_REFRESH_VIDEO_INDEX = '1'
+  }
   return env
 }
 
@@ -525,6 +535,8 @@ function main() {
   if (argv[0] === 'clean') { runClean(); return }
   if (argv[0] === 'audit') { runAudit(argv.slice(1)); return }
   const { values, rest } = parseFlags(argv)
+  if (values.fetchArticles) rest.push('--fetch-articles')
+  if (values.downloadStickers) rest.push('--download-stickers')
   const configPath = resolve(values.config || join(homedir(), '.weflow-cli', 'config.json'))
   if (!existsSync(configPath)) fail(`找不到 weflow-cli 配置: ${configPath}`, 3)
   const python = findVenvPython()

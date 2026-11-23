@@ -36,6 +36,9 @@ const STICKER_MAP = join(HERE, 'wechat-sticker-map.py')
 const STICKER_SEED = join(HERE, 'wechat-sticker-seed.py')
 const REVOKE_MAP = join(HERE, 'wechat-revoke-map.py')
 const AUDIT = join(HERE, 'wechat-audit.py')
+const CONTACTS = join(HERE, 'wechat-contacts-export.py')
+const DECRYPT_IMAGE = join(HERE, 'wechat-decrypt-image.py')
+const PERSON_EXPORT = join(HERE, 'wechat-person-export.py')
 const NATIVE_WEFLOW = join(HERE, 'native-weflow.mjs')
 const SEARCH = join(HERE, 'wechat42-search.py')
 const VENDOR = join(HERE, 'vendor', 'wechat42')
@@ -54,6 +57,10 @@ function usage() {
   node scripts/wechat42-export.mjs doctor
   node scripts/wechat42-export.mjs check-updates
   node scripts/wechat42-export.mjs audit --output <导出目录> [--deep] [--json]
+  node scripts/wechat42-export.mjs contacts --output <导出目录> [--no-avatars] [--json]
+  node scripts/wechat42-export.mjs decrypt-image <文件> --output <路径> [--aes 16位] [--xor N]
+  node scripts/wechat42-export.mjs person --sender <名称/wxid> --output <目录> [--from D --to D] [--incremental]
+  node scripts/wechat42-export.mjs timeline --output <目录> [--from D --to D] [--incremental]
   node scripts/wechat42-export.mjs clean [--purge-keys]
 
 setup:
@@ -73,6 +80,8 @@ export:
   --with-media-map         强制生成 media-map（native 默认会跳过冗余映射）
   --no-sticker-map         不生成表情包映射（表情只保留文字标签）
   --no-voice-map           不生成/导出语音（只保留文字标签）
+  --fetch-articles          显式联网抓取公众号正文（仅 mp.weixin.qq.com）
+  --download-stickers       显式联网下载本机缺失的表情（Tencent 白名单）
   --sticker-seed <值>      表情包解密种子（缺省自动探测：配置或微信进程内存）
   --no-revoke-map          不生成撤回记录映射
   --no-audit               导出后不跑完整性校验
@@ -90,6 +99,25 @@ check-updates:
 
 audit:
   --deep  重新读取 work/ 源库，按 local_id+server_id 与原始 JSON、导出逐条对账。
+
+contacts:
+  导出联系人、群成员和头像到 contacts.json / groups.json / avatars/。
+  --no-avatars  不导出头像（更快，输出更小）
+  --output <目录>  必填；必须位于微信账号目录之外
+
+decrypt-image:
+  解密单个图片 .dat/V2 文件；默认用配置里的 accountRoot 派生 key。
+  --output <路径>  输出文件或目录（必须在微信账号目录之外）
+  --aes <16位> --xor <0-255>  手动指定 key；--account-root 可覆盖派生来源
+  --json  输出机器可读结果
+
+person / timeline:
+  跨会话按人导出或生成全局时间线（JSONL）。
+  --output <目录>  必填；输出 person.jsonl 或 timeline.jsonl + state.json
+  --sender <名称/wxid>  person 模式必填
+  --from/--to <YYYY-MM-DD>  时间范围
+  --incremental  使用 <output>/state.json 只追加新消息
+  --json  输出机器可读摘要
 
 安全:
   sandbox/work/home 都含敏感数据；不导出时请执行 clean。
@@ -139,6 +167,8 @@ function parseFlags(args) {
     if (token === '--with-media-map') { values.withMediaMap = true; continue }
     if (token === '--no-sticker-map') { values.noStickerMap = true; continue }
     if (token === '--no-voice-map') { values.noVoiceMap = true; continue }
+    if (token === '--fetch-articles') { values.fetchArticles = true; continue }
+    if (token === '--download-stickers') { values.downloadStickers = true; continue }
     if (token === '--no-revoke-map') { values.noRevokeMap = true; continue }
     if (token === '--no-audit') { values.noAudit = true; continue }
     if (token === '--legacy-weflow') { values.legacyWeflow = true; continue }
@@ -300,6 +330,12 @@ function sandboxEnv(config, values = {}) {
   env.WEFLOW_NATIVE_PYTHON = config.venvPython
   if (values.noVoiceMap) env.WEFLOW_NATIVE_NO_VOICE = '1'
   if (values.noStickerMap) env.WEFLOW_NATIVE_NO_STICKER = '1'
+  if (values.fetchArticles) env.WEFLOW_NATIVE_FETCH_ARTICLES = '1'
+  if (values.downloadStickers) env.WEFLOW_NATIVE_DOWNLOAD_STICKERS = '1'
+  if (values.refresh) {
+    env.WEFLOW_NATIVE_REFRESH_FILE_INDEX = '1'
+    env.WEFLOW_NATIVE_REFRESH_VIDEO_INDEX = '1'
+  }
   return env
 }
 
@@ -498,6 +534,8 @@ function runExport(values, args) {
     || args.some((arg) => String(arg).startsWith('--output='))
   const output = join(realHome, '.wechat-export', `${nowStamp()}-wechat42`)
   const forward = [...args]
+  if (values.fetchArticles) forward.push('--fetch-articles')
+  if (values.downloadStickers) forward.push('--download-stickers')
   if (!hasOutput) forward.push('--output', output)
   // Level 2 default: a native shim with the same command surface as
   // weflow-cli. `--legacy-weflow` keeps the old path for comparison.
@@ -797,6 +835,128 @@ function runDoctor() {
   if (!ready) process.exitCode = 3
 }
 
+function runAggregate(command, args) {
+  const config = readConfig()
+  if (!config) fail('还没有配置 4.2 后端；先运行 setup', 3)
+  let output = ''
+  let sender = ''
+  let since = ''
+  let until = ''
+  let stateFile = ''
+  let maxSessions = ''
+  let maxMessages = ''
+  let incremental = false
+  let json = false
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i]
+    if (token === '--output' || token === '-o') { output = args[++i] || ''; continue }
+    if (token.startsWith('--output=')) { output = token.slice('--output='.length); continue }
+    if (token === '--sender') { sender = args[++i] || ''; continue }
+    if (token === '--from') { since = args[++i] || ''; continue }
+    if (token === '--to') { until = args[++i] || ''; continue }
+    if (token === '--state-file') { stateFile = args[++i] || ''; continue }
+    if (token === '--max-sessions') { maxSessions = args[++i] || ''; continue }
+    if (token === '--max-messages') { maxMessages = args[++i] || ''; continue }
+    if (token === '--incremental') { incremental = true; continue }
+    if (token === '--json') { json = true; continue }
+    fail(`未知的 ${command} 参数: ${token}`)
+  }
+  if (!output) fail(`${command} 需要 --output <目录>`)
+  if (command === 'person' && !sender) fail('person 需要 --sender <名称/wxid>')
+  let workDir = config.workDir
+  if (!workDir || !existsSync(workDir)) {
+    console.error('明文 work/ 不存在，重建 work/ ...')
+    runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
+      { stderr: true, nativeOnly: true })
+    workDir = config.workDir
+  }
+  const pythonArgs = [
+    PERSON_EXPORT,
+    '--work-dir', resolve(workDir),
+    '--output', resolve(output),
+  ]
+  if (sender) pythonArgs.push('--sender', sender)
+  if (since) pythonArgs.push('--from', since)
+  if (until) pythonArgs.push('--to', until)
+  if (stateFile) pythonArgs.push('--state-file', resolve(stateFile))
+  if (maxSessions) pythonArgs.push('--max-sessions', maxSessions)
+  if (maxMessages) pythonArgs.push('--max-messages', maxMessages)
+  if (incremental) pythonArgs.push('--incremental')
+  if (json) pythonArgs.push('--json')
+  const res = run(config.venvPython, pythonArgs, { env: sandboxEnv(config) })
+  process.exit(res.status ?? 0)
+}
+
+function runDecryptImage(args) {
+  const config = readConfig()
+  if (!config) fail('还没有配置 4.2 后端；先运行 setup', 3)
+  let input = ''
+  let output = ''
+  let aes = ''
+  let xor = ''
+  let accountRoot = config.accountRoot
+  let json = false
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i]
+    if (token === '--output' || token === '-o') { output = args[++i] || ''; continue }
+    if (token.startsWith('--output=')) { output = token.slice('--output='.length); continue }
+    if (token === '--aes') { aes = args[++i] || ''; continue }
+    if (token === '--xor') { xor = args[++i] || ''; continue }
+    if (token === '--account-root') { accountRoot = args[++i] || ''; continue }
+    if (token === '--json') { json = true; continue }
+    if (!input && !token.startsWith('-')) { input = token; continue }
+    fail(`未知的 decrypt-image 参数: ${token}`)
+  }
+  if (!input) fail('decrypt-image 需要输入文件')
+  if (!output) fail('decrypt-image 需要 --output <路径>')
+  const pythonArgs = [
+    DECRYPT_IMAGE,
+    resolve(input),
+    '--output', resolve(output),
+    '--account-root', accountRoot,
+  ]
+  if (aes) pythonArgs.push('--aes', aes)
+  if (xor) pythonArgs.push('--xor', xor)
+  if (json) pythonArgs.push('--json')
+  const res = run(config.venvPython, pythonArgs, { env: sandboxEnv(config) })
+  process.exit(res.status ?? 0)
+}
+
+function runContacts(args) {
+  const config = readConfig()
+  if (!config) fail('还没有配置 4.2 后端；先运行 setup', 3)
+  let output = ''
+  let workDir = config.workDir
+  let noAvatars = false
+  let json = false
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i]
+    if (token === '--output' || token === '-o') { output = args[++i] || ''; continue }
+    if (token.startsWith('--output=')) { output = token.slice('--output='.length); continue }
+    if (token === '--work-dir') { workDir = args[++i] || ''; continue }
+    if (token === '--no-avatars') { noAvatars = true; continue }
+    if (token === '--json') { json = true; continue }
+    fail(`未知的 contacts 参数: ${token}`)
+  }
+  if (!output) fail('contacts 需要 --output <导出目录>')
+  if (!workDir || !existsSync(workDir)) {
+    console.error('明文 work/ 不存在，重建 work/ ...')
+    runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
+      { stderr: true, nativeOnly: true })
+    workDir = config.workDir
+  }
+  const pythonArgs = [
+    CONTACTS,
+    '--work-dir', resolve(workDir),
+    '--account-root', config.accountRoot,
+    '--output', resolve(output),
+  ]
+  if (noAvatars) pythonArgs.push('--no-avatars')
+  if (json) pythonArgs.push('--json')
+  const res = run(config.venvPython, pythonArgs, { env: sandboxEnv(config) })
+  process.exit(res.status ?? 0)
+}
+
 function runClean(args = []) {
   const config = readConfig()
   if (!config) { console.log('未配置 4.2 后端'); return }
@@ -832,6 +992,12 @@ function main() {
   if (command === 'doctor') { runDoctor(); return }
   if (command === 'check-updates') { runCheckUpdates(); return }
   if (command === 'audit') { runAudit(argv.slice(1)); return }
+  if (command === 'contacts') { runContacts(argv.slice(1)); return }
+  if (command === 'decrypt-image') { runDecryptImage(argv.slice(1)); return }
+  if (command === 'person' || command === 'timeline') {
+    runAggregate(command, argv.slice(1))
+    return
+  }
   if (command === 'clean') { runClean(argv.slice(1)); return }
   if (command === 'search') {
     const { values } = parseSearchFlags(argv.slice(1))

@@ -67,7 +67,7 @@ import {
   writeText,
 } from './lib/media.mjs'
 
-const SKILL_VERSION = '1.10.5'
+const SKILL_VERSION = '1.11.0'
 
 const ALL_TYPES = [
   'text', 'image', 'file', 'video', 'voice', 'emoji',
@@ -184,6 +184,8 @@ function printUsage() {
   --video-root <目录>         额外指定微信账号目录或视频目录，可重复
   --weflow-config <文件>      weflow-cli 配置文件路径（默认 ~/.weflow-cli/config.json）
   --media-map <文件>          4.2 媒体映射（wechat42-media-map.py 产物；补视频/图片）
+  --fetch-articles            显式联网抓取公众号正文（仅 mp.weixin.qq.com；默认关闭）
+  --download-stickers         显式联网下载本机缺失的表情（Tencent 白名单；默认关闭）
   --revoke-map <文件>         撤回映射（wechat-revoke-map.py 产物；标记已撤回消息）
   --prune-raw                 成包后删除 raw/ 中间目录
   --keep-raw                  保留 raw/（默认）
@@ -771,8 +773,9 @@ function mediaDaysOf(rawMessages, time) {
  * full-history extraction, with a warning.
  */
 async function extractMediaForTarget({ ctx, target, rawDir, rawMessages, time, opts, warnings }) {
+  const extraNetwork = Boolean(opts.fetchArticles || opts.downloadStickers)
   const mediaDays = mediaDaysOf(rawMessages, time)
-  if (!mediaDays.length) {
+  if (!mediaDays.length && !extraNetwork) {
     return { performed: true, runs: 0, completed: 0, failed: false, error: null, strategyUsed: 'none' }
   }
 
@@ -780,7 +783,14 @@ async function extractMediaForTarget({ ctx, target, rawDir, rawMessages, time, o
   let runs = []
   let strategyUsed = 'day'
 
-  if (strategy === 'full') {
+  if (!mediaDays.length && extraNetwork) {
+    // No image/file messages, but the caller wants articles/stickers fetched.
+    // One run is enough; a date target can stay scoped to that day.
+    runs = time.kind === 'date'
+      ? [{ dateArg: time.dateArg }]
+      : [{ dateArg: undefined }]
+    strategyUsed = time.kind === 'date' ? 'day' : 'full'
+  } else if (strategy === 'full') {
     runs = [{ dateArg: undefined }]
     strategyUsed = 'full'
     warnings.push(`媒体策略 full：会抽取该会话全部历史图片/文件（不只是本次范围）`)
@@ -985,6 +995,7 @@ async function runExport(opts) {
   const types = parseTypes(opts.types)
   const time = resolveTimeWindow(opts)
   const mediaRequested = types.has('image') || types.has('file')
+    || Boolean(opts.fetchArticles) || Boolean(opts.downloadStickers)
   const videoRequested = types.has('video')
   const warnings = []
 

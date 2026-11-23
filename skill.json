@@ -1,14 +1,37 @@
 {
   "name": "wechat-export",
-  "version": "1.10.5",
+  "version": "1.11.0",
   "category": "other/wechat",
   "source": "自建",
   "status": "draft",
   "author": "chenxi liu",
   "license": "MIT",
   "createdAt": "2026-11-16",
-  "updatedAt": "2026-11-20",
+  "updatedAt": "2026-11-23",
   "changelog": [
+    {
+      "version": "1.11.0",
+      "date": "2026-11-23",
+      "author": "chenxi liu",
+      "changes": [
+        "新增 contacts 命令：导出联系人 contacts.json、群成员 groups.json、头像 avatars/",
+        "新增 decrypt-image 单文件解密；JSONL 增加 mediaStatus/missingReason；新增 docs/OUTPUT_SCHEMA.md",
+        "新增 opt-in --fetch-articles（仅 mp.weixin.qq.com）和 --download-stickers（Tencent 白名单）；默认关闭",
+        "新增 person/timeline 命令：跨会话按人导出、全局时间线、--incremental 基于 state.json 追加",
+        "测试增至 63 项 Node + 59 项 Python"
+      ]
+    },
+    {
+      "version": "1.10.6",
+      "date": "2026-11-23",
+      "author": "chenxi liu",
+      "changes": [
+        "native 文件索引增加 TTL（默认 600s）和强制刷新；--refresh 同时刷新 file/video 索引；video index 支持显式 refresh",
+        "缓存表情 seed 增加样本校验：失效时自动重新探测，避免旧 seed 让表情静默全缺失",
+        "Skill 安装验证：~/.claude/skills/wechat-export junction 已创建并成功触发；--check 在安装路径下使用 key 缓存通过",
+        "测试增至 59 项 Node + 48 项 Python"
+      ]
+    },
     {
       "version": "1.10.5",
       "date": "2026-11-20",
