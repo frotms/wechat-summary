@@ -67,11 +67,12 @@ import {
   writeText,
 } from './lib/media.mjs'
 
-const SKILL_VERSION = '1.10.3'
+const SKILL_VERSION = '1.10.5'
 
 const ALL_TYPES = [
   'text', 'image', 'file', 'video', 'voice', 'emoji',
-  'location', 'link', 'history', 'card', 'call', 'system', 'quote', 'other',
+  'location', 'link', 'history', 'transfer', 'redpacket',
+  'card', 'call', 'system', 'quote', 'other',
 ]
 
 const TYPE_ALIASES = {
@@ -84,6 +85,8 @@ const TYPE_ALIASES = {
   location: 'location', 位置: 'location',
   link: 'link', 链接: 'link',
   history: 'history', chat_history: 'history', 聊天记录: 'history', 转发: 'history',
+  transfer: 'transfer', 转账: 'transfer',
+  redpacket: 'redpacket', red_packet: 'redpacket', 红包: 'redpacket',
   card: 'card', 卡片: 'card',
   call: 'call', 通话: 'call',
   system: 'system', 系统: 'system',
@@ -93,7 +96,9 @@ const TYPE_ALIASES = {
 }
 
 function parseTypes(value) {
-  const text = String(value ?? 'text,image,file,video,voice,emoji,link,history').trim()
+  const text = String(
+    value ?? 'text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,call',
+  ).trim()
   if (!text) throw new UsageError('--types 不能为空', { code: 'INVALID_TYPES' })
   const selected = new Set()
   for (const raw of text.split(/[\s,，、]+/).filter(Boolean)) {
@@ -164,8 +169,8 @@ function printUsage() {
   --limit <n>                 每个会话最多 n 条消息（0=全部）
 
 类型:
-  --types <列表>              text,image,file,video,voice,emoji,link,history,...,all
-                              默认 text,image,file,video,voice,emoji,link,history
+  --types <列表>              text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,...,all
+                              默认 text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,call
 
 媒体:
   --media-strategy <策略>     auto | day | full | none（默认 auto）

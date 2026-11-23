@@ -151,6 +151,30 @@ async function buildRecord(message, options) {
     record.records = message.records.map(normalizeForwardRecord)
     if (message.isNote) record.isNote = true
   }
+  if (classified.type === 'transfer' && message.amount) {
+    record.amount = message.amount
+  }
+  if (classified.type === 'redpacket') {
+    record.redpacket = {
+      title: message.appTitle || '',
+      description: message.appDescription || '',
+    }
+  }
+  if (classified.type === 'location') {
+    record.location = {
+      lat: message.lat || '',
+      lng: message.lng || '',
+      title: message.appTitle || '',
+      city: message.appDescription || '',
+      url: message.appUrl || '',
+    }
+  }
+  if (classified.type === 'card' && message.cardUsername) {
+    record.contact = {
+      username: message.cardUsername,
+      title: message.appTitle || '',
+    }
+  }
   if (includeRaw) record.rawContent = message.rawContent || message.content || ''
 
   const manifest = readManifestEntry(mediaManifest, record.id)
@@ -252,6 +276,10 @@ async function buildRecord(message, options) {
     // A poster is optional; prefer the 4.2 media map, then weflow's manifest,
     // then a file beside the mp4.
     let posterSource = mapped?.poster || null
+    if (!posterSource && manifest?.poster) {
+      const candidate = join(options.rawDir, manifest.poster)
+      if (isPathInside(options.rawDir, candidate)) posterSource = candidate
+    }
     if (!posterSource && manifest?.kind === 'image' && source) posterSource = source
     if (!posterSource) posterSource = findVideoPoster(candidates, hit?.file, videoIndex)
     if (posterSource) {

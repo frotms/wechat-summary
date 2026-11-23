@@ -1,0 +1,19 @@
+# Python dependencies for the wechat-export skill.
+#
+# 4.2 native export (default):
+#   - pycryptodome / cryptography: SQLCipher page decrypt, image V2/WXGF, sticker AES
+#   - zstandard: decompress message content
+cryptography>=42
+pycryptodome>=3.20
+zstandard>=0.22
+
+# Voice: SILK -> WAV. silk-python ships pysilk wheels and is preferred over pilk
+# (pilk needs MSVC on Windows and is GPL-3.0).
+silk-python>=0.2
+
+# Sticker: wxgf/H.265 -> PNG/GIF via the ffmpeg executable shipped by this package.
+imageio-ffmpeg>=0.5
+
+# 4.1 native is currently deferred. Install this only if you need the retained
+# 4.1 path or the legacy sandbox:
+# sqlcipher3-wheels>=0.5

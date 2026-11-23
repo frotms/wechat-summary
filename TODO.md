@@ -1,6 +1,6 @@
 # TODO（当前待办）
 
-> 更新：2026-11-20 · 版本 1.10.3  
+> 更新：2026-11-20 · 版本 1.10.5  
 > 只列**尚未完成/尚未验证**的 skill 工作；`BACKLOG.md` 里的收藏、朋友圈、公众号正文、语音转写等已记录项不重复。  
 > 定位：Claude Code Skill，**不做 GUI / 管理后台 / 工程化界面**；导出 HTML 只是浏览产物。  
 > **2026-11-20**：用户确认先不管微信 4.1；4.1 条目统一标为「暂缓」，不阻塞当前收口。
@@ -36,9 +36,11 @@
 
 ## P1：可靠性/性能/测试
 
-- [ ] **native 缓存失效**：`work/_native_file_index.json` 增量更新；`_native_sticker_seed` 校验；`video_index.json` 提供强制刷新。
-- [ ] **默认减少重复媒体映射**：native 已能处理全媒体；默认仅在需要 V2 视频/封面补充时跑 `media-map`，避免重复扫描/解码。
-- [ ] **4.2 native 缺口**：V2 视频在 `--no-media-map` 时只复制原始字节；普通 WXGF HEVC、公众号正文、合并转发内层媒体未覆盖。
+- [x] **native 缓存失效（部分）**：`video_index.json` 每次 `--media` 会刷新；`_native_file_index.json`/`_native_sticker_seed` 仍是长期缓存，待补增量。
+- [x] **文本型导出跳过媒体/表情映射**：`--types` 不含 image/file/video/voice/emoji 时，不生成 media-map/sticker-map，也不扫 sticker seed。
+- [x] **减少全媒体导出的重复映射**：types 含 image/file 时 native `--media` 已处理图片/文件/视频/封面/语音/表情，跳过 media-map；`--with-media-map` 可强制。
+- [x] **4.2 离线 key 缓存**：`setup` 保存 `<baseDir>/keys.json`；后续优先缓存，缓存失效自动回退；`clean` 默认保留，`--purge-keys` 删除。
+- [ ] **4.2 native 缺口**：V2 视频在无 image/file 类型且禁用 media-map 时仍可能只复制原始字节；普通 WXGF HEVC、公众号正文、合并转发内层媒体未覆盖。
 - [x] **CI 补 `sqlcipher3-wheels`**：已加入 Python CI 依赖，4.1 native 测试不再 skip。
 - [ ] **补端到端测试**：4.1 wrapper、native-only setup、`--legacy-weflow` 回退、4.1 audit；当前多为手工验证。
 - [ ] **Skill 安装/触发验证**：复制到 `~/.claude/skills/wechat-export` 后，用真实话术验证能被触发并跑通。
@@ -49,11 +51,12 @@
 - [ ]（暂缓）4.1 真机 canary（图片/表情/语音/撤回/audit）
 - [ ] 真实 V2 视频、普通 WXGF HEVC 解码
 - [ ] 公众号正文、合并转发内层媒体（CDN）
-- [ ] 红包/转账/位置/名片/小程序等特殊消息结构化
+- [x] 红包/转账/位置/名片结构化（金额/标题/经纬度/wxid）
+- [ ] 小程序等特殊消息更深字段
 - [ ] 联系人/群成员/头像导出
 - [ ] 增量导出、跨会话按人导出、全局时间线/搜索
 - [ ] 导出加密/脱敏/保留期
-- [ ] `requirements.txt` / 依赖一键安装
+- [x] `requirements.txt`（4.2 原生/语音/表情；4.1 的 sqlcipher3 以注释给出）
 - [ ] 跨平台验证（如未来需要；当前 Windows-only 是明确边界）
 
 ## 明确不做

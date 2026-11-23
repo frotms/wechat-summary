@@ -1,6 +1,6 @@
 # 当前状态与待办
 
-> 版本：1.10.3（2026-11-19）  
+> 版本：1.10.5（2026-11-20）  
 > 分支：仅 `main`（feat 已于 2026-11-20 收口并删除；旧 main 见 tag `archive-main-python-4.1-2026-11-18`）  
 > 验证环境：Windows 10 + 微信桌面版 4.2.0.13  
 > 详细设计见 `DESIGN.md`；按优先级排列的待办见 `TODO.md`；已记录但暂不实现的需求见 `BACKLOG.md`。
@@ -19,15 +19,20 @@
 | 撤回记录 | ✅ | 批量撤回匹配原消息；单条/孤立记录写 `revokes.json`，消息标记 `revoked` |
 | 引用消息 | ✅ | `refermsg` 还原发送者/原文为 `quote`；HTML 引用块、Markdown 引用 |
 | 合并转发/笔记 | ✅ | `recorditem` 展开内层文字/文件名/发送者/时间为 `records`；HTML `<details>`、Markdown 引用块 |
+| 转账/红包 | ✅ | 金额/标题/说明进入 `amount`/`redpacket`；HTML 卡片、JSONL 可直接消费 |
+| 位置 | ✅ | 经纬度/地点/城市/高德链接进入 `location`；HTML 地图卡、Markdown 链接 |
+| 名片 | ✅ | 昵称/wxid 进入 `contact`；HTML 卡片、JSONL 可直接消费 |
 | 按时间/群/个人 | ✅ | `--from/--to/--date/--days`、`--group/--person`、`--all-*` |
 | V2 加密视频 | ✅ | `lib/v2_decode.py`，4.2 媒体映射自动尝试 |
 | 完整性校验 | ✅ | 数据库行数 = 原始 JSON = 导出 + 按类型跳过；`audit.json`；`audit --deep` 按 `local_id+server_id` 逐条对账 |
 | 只读硬约束 | ✅ | weflow-cli 命令白名单 + 输出路径保护；不写/不转发/不增删改 |
 | 4.2 后端 | ✅ | 内置 vendor（wechat-exporter MIT）+ sandbox；默认 `native-backend.py` 读取 `work/`，4.2 导出不再依赖 `weflow-cli`（`--legacy-weflow` 可回退） |
+| 4.2 key 缓存 | ✅ | `setup` 保存 `<baseDir>/keys.json`；后续优先缓存，无需微信进程；`clean --purge-keys` 删除 |
+| native 媒体 | ✅ | V2 视频解码 + 封面复制；types 含 image/file 时跳过冗余 media-map；`--with-media-map` 可强制 |
 | 4.1 后端 | ⏸ 暂缓 | 代码保留，但暂不维护/未真机验证；旧实现归档在 tag `archive-main-python-4.1-2026-11-18` |
 | 脱离 `weflow-cli` | ✅ 4.2 原生 | 4.2 默认 `native-backend.py` + `native-weflow.mjs`；4.1 代码保留但不维护；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
-| 测试 | ✅ | 52 项 Node + 41 项 Python |
+| 测试 | ✅ | 59 项 Node + 46 项 Python |
 
 ### 本机验证基线（微信 4.2.0.13）
 
@@ -42,6 +47,11 @@
 - 2026-11-19：引用/合并转发：`refermsg` 还原为 `quote`，`recorditem` 展开为 `records`；HTML/Markdown/JSONL 均有测试
 - 2026-11-19：真实 4.2 canary：普曼群 84 条引用；理财群 91 条引用 + 6 条合并转发；HTML 引用块 84/91、`<details>` 6 个，audit 通过
 - 2026-11-19：clean 后带 `--no-media-map --no-revoke-map --no-voice-map --no-sticker-map` 导出：自动重建 work/，47 条，audit 通过
+- 2026-11-20：文本型导出跳过媒体/表情映射（真实 4.2 canary：无 media-map/sticker-seed 日志，audit 通过）
+- 2026-11-20：特殊消息真实 canary：9 位置 / 2 名片 / 1 红包 / 2 转账；JSONL/HTML/Markdown 通过，audit 3/3
+- 2026-11-20：真实 4.2 `audit --deep`：源库 275 = 原始 275，导出 235 + 跳过 40；missing/extra/exportedNotInRaw 均为 0，boundary reliable=true
+- 2026-11-20：4.2 key 缓存：setup 保存 21 个 raw key；clean（删除 work）后 setup 使用 `source=cache`，21/21 解密，无需重新提取
+- 2026-11-20：真实媒体 canary（frotms 小号版，12 条）：图片 2/2、语音 2/2 导出；视频 1 条本机未缓存标记 `video-not-local`；native 跳过 media-map，`audit --deep` 0 missing/extra
 
 ## 二、已知限制
 
@@ -52,12 +62,12 @@
 4. **4.1 暂缓**：用户 2026-11-20 确认先不管 4.1；相关代码、合成测试保留，但不维护/不验收。旧实现见 tag `archive-main-python-4.1-2026-11-18`。
 5. **V2/HEVC 图片**：V2 视频有合成测试；图片侧依赖 weflow-cli，未专门验证。
 6. **真实 V2 视频**：本机 1331 个视频全是普通 MP4，V2 只有合成测试。
-7. **非文本消息结构化**：红包、转账、小程序、位置、名片多为文字/链接标签，未解析金额等字段；引用和合并转发已还原。
+7. **非文本消息结构化**：小程序、视频号、部分应用消息仍未展开；转账/红包/位置/名片已结构化（领取/退款等状态字段未解析）。
 8. **公众号**：本机无 `gh_` 会话，`--all-official` 只有假 CLI 测试。
-9. **大会话性能**：媒体映射对每个目标扫描；实测某群 340 条约 6 分钟。
+9. **大会话性能**：native 在 types 含 image/file 时跳过 media-map；video/voice/emoji-only 或 `--with-media-map` 仍会扫描。
 10. **跨平台**：只在 Windows 10/11 + 微信 4.x 验证；macOS/Linux、微信 3.x 未验证。
 11. **输出安全**：导出物、`audit.json`、`revokes.json` 均为明文，无脱敏/匿名化/保留期策略。
-12. **依赖安装**：`silk-python`、`imageio-ffmpeg` 仍需手动安装；无 `requirements.txt`。
+12. **依赖安装**：已提供 `requirements.txt`；仍需用户自己创建 venv 并安装（当前不做一键安装器/安装向导）。
 
 ## 三、待办（按优先级）
 
@@ -71,7 +81,7 @@
 
 - [ ] V2/HEVC 图片验证与解码补齐。
 - [ ] 真实 V2 视频 canary。
-- [ ] 红包/转账/小程序/位置/名片的结构化解析。
+- [x] 红包/转账/位置/名片结构化（金额/标题/经纬度/wxid）；小程序等更深字段待补。
 - [ ] 真实 `gh_` 公众号 canary。
 
 ### P2：工程化
@@ -98,8 +108,8 @@
 ## 四、如何自检
 
 ```bash
-npm test                  # 52 项 Node 测试
-npm run test:py           # 41 项 Python 测试
+npm test                  # 59 项 Node 测试
+npm run test:py           # 46 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs audit --output "<导出目录>" --deep

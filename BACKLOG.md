@@ -38,7 +38,7 @@
 - 2026-11-03：33 条，文字 25、图片 6（找到 6）、文件 1（找到 1）、视频 1（找到 1，含封面）；
 - 2026-11-13（SEx）：47 条，文字 43、语音 4（找到 4，WAV）；
 - 2026-11-02（某群）：21 条表情消息，18 条解密成功（PNG 3 / GIF 15），3 条本机无缓存；
-- `npm test`：52 项通过；`npm run test:py`：41 项通过。
+- `npm test`：59 项通过；`npm run test:py`：46 项通过。
 
 ## 二、已记录、暂不实现
 
@@ -85,7 +85,7 @@
 - Level 2：**4.1/4.2 已完成（2026-11-18）**。`scripts/native-backend.py` + `scripts/native-weflow.mjs` 直接读取 `work/`，实现 `check/sessions/contacts/export json --media`；4.1 由 `wechat41-decrypt.py` 先解密到 `work/`。默认不再调用 `weflow-cli`，`--legacy-weflow` 可回退对照。
   - 4.2 实测：文字 9/9、图片 2/2、文件 3/3、语音 4/4、视频 1/1；audit 通过。
 - Level 2（4.1）：已完成原生路径。`wechat41-decrypt.py` 用 SQLCipher 把加密库解到独立 `work/`，再由 `native-backend.py` 读取；`wechat41-export.mjs` 默认走该路径，`--legacy-weflow` 回退。
-  - 合成 SQLCipher 测试通过（41 项 Python 测试含 4.1 用例）；本机无 4.1 真机数据，真机 canary 待补。
+  - 合成 SQLCipher 测试通过（46 项 Python 测试含 4.1 用例）；本机无 4.1 真机数据，真机 canary 待补。
 - 需要 golden/canary 对比，不能零回归承诺。
 
 ### REQ-019 V2 加密视频

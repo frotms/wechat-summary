@@ -172,10 +172,49 @@ test('--list hides official accounts by default', () => {
     const res = run(ws, [...baseArgs(ws), '--list'])
     assert.equal(res.status, 0, res.stderr)
     assert.equal(res.json.success, true)
-    assert.equal(res.json.count, 2)
+    assert.equal(res.json.count, 3)
     const names = res.json.sessions.map((session) => session.name)
-    assert.deepEqual(names.sort(), ['张三', '项目群'].sort())
+    assert.deepEqual(names.sort(), ['张三', '项目群', '特殊群'].sort())
     assert.ok(res.json.sessions.every((session) => session.summary === undefined))
+  } finally {
+    ws.cleanup()
+  }
+})
+
+test('exports quotes, forwards and special messages', () => {
+  const ws = makeWorkspace()
+  try {
+    const res = run(ws, [
+      ...baseArgs(ws),
+      '--target', '特殊群',
+      '--from', '2026-01-05', '--to', '2026-01-05',
+      '--types', 'quote,history,transfer,redpacket,location,card',
+    ])
+    assert.equal(res.status, 0, res.stderr)
+    assert.ok(res.json, res.stdout)
+    const bundle = res.json.bundles[0]
+    const bundleDir = join(ws.outDir, bundle.dir)
+    const records = readJsonl(join(bundleDir, 'messages.jsonl'))
+    assert.equal(records.length, 6)
+    const byType = Object.fromEntries(records.map((record) => [record.type, record]))
+
+    assert.equal(byType.quote.quote.sender, '张三')
+    assert.equal(byType.quote.quote.text, '原来的消息')
+    assert.equal(byType.history.records.length, 2)
+    assert.equal(byType.history.records[1].text, '报告.pdf')
+    assert.equal(byType.transfer.amount, '¥88.00')
+    assert.equal(byType.redpacket.redpacket.title, '恭喜发财')
+    assert.equal(byType.location.location.lat, '31.2304')
+    assert.match(byType.location.location.url, /uri\.amap\.com/)
+    assert.equal(byType.card.contact.username, 'wxid_card')
+
+    const html = readFileSync(join(bundleDir, 'index.html'), 'utf8')
+    assert.match(html, /class="quote"/)
+    assert.match(html, /<details class="record"/)
+    assert.match(html, /class="special transfer"/)
+    assert.match(html, /class="special redpacket"/)
+    assert.match(html, /class="special location"/)
+    assert.match(html, /class="special card"/)
   } finally {
     ws.cleanup()
   }

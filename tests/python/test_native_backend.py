@@ -4,11 +4,15 @@ import hashlib
 import json
 import os
 import sqlite3
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from Crypto.Cipher import AES
+from Crypto.Util import Padding
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "native-backend.py"
@@ -57,7 +61,7 @@ class NativeBackendTest(unittest.TestCase):
         cfg.write_text(json.dumps({"workDir": str(work), "accountRoot": str(account)}), encoding="utf-8")
         return work, account, cfg
 
-    def run_native(self, root: Path, cfg: Path, *args):
+    def run_native(self, root: Path, cfg: Path, *args, extra_env=None):
         env = {
             **os.environ,
             "WEFLOW_NATIVE_CONFIG": str(cfg),
@@ -67,6 +71,8 @@ class NativeBackendTest(unittest.TestCase):
             "PYTHONIOENCODING": "utf-8",
             "PYTHONUTF8": "1",
         }
+        if extra_env:
+            env.update(extra_env)
         return subprocess.run([sys.executable, str(SCRIPT), *args],
                               capture_output=True, text=True, encoding="utf-8", env=env)
 
@@ -160,6 +166,118 @@ class NativeBackendTest(unittest.TestCase):
             self.assertEqual(records[0]["text"], "你好")
             self.assertEqual(records[1]["kind"], "file")
             self.assertEqual(records[1]["text"], "报告.pdf")
+
+    def test_export_special_messages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work, _account, cfg = self.make_fixture(root)
+            table = "Msg_" + hashlib.md5(TARGET.encode()).hexdigest()
+            transfer = (
+                "<msg><appmsg><title>转账</title><type>2000</type><des>说明</des>"
+                "<wcpayinfo><feedesc>¥88.00</feedesc></wcpayinfo></appmsg></msg>"
+            )
+            redpacket = (
+                "<msg><appmsg><title>恭喜发财</title><type>2001</type>"
+                "<des>大吉大利</des></appmsg></msg>"
+            )
+            location = (
+                '<msg><location x="31.2304" y="121.4737" '
+                'label="人民广场" cityname="上海"/></msg>'
+            )
+            card = '<msg username="wxid_card" nickname="张三" />'
+            conn = sqlite3.connect(work / "message" / "message_0.db")
+            for local_id, local_type, content in (
+                (4, (2000 << 32) | 49, transfer),
+                (5, (2001 << 32) | 49, redpacket),
+                (6, 48, location),
+                (7, 42, card),
+            ):
+                conn.execute(
+                    f'insert into "{table}" values (?, ?, ?, ?, ?, ?, ?)',
+                    (local_id, f"srv-{local_id}", local_type, 1, TS + local_id * 10,
+                     content.encode("utf-8"), b""))
+            conn.commit()
+            conn.close()
+
+            out = root / "out"
+            res = self.run_native(
+                root, cfg, "export", TARGET, "json",
+                "--from", "2026-01-05", "--to", "2026-01-05",
+                "--output", str(out), "--limit", "0", "--contract", "weflow-v1",
+                "--non-interactive", "--json",
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            payload = json.loads((out / f"{TARGET}_messages.json").read_text(encoding="utf-8"))
+            by_id = {item["localId"]: item for item in payload["messages"]}
+
+            self.assertEqual(by_id[4]["messageType"], "transfer")
+            self.assertEqual(by_id[4]["amount"], "¥88.00")
+            self.assertEqual(by_id[5]["messageType"], "redpacket")
+            self.assertEqual(by_id[5]["appTitle"], "恭喜发财")
+            self.assertEqual(by_id[6]["messageType"], "location")
+            self.assertEqual(by_id[6]["lat"], "31.2304")
+            self.assertEqual(by_id[6]["lng"], "121.4737")
+            self.assertIn("uri.amap.com", by_id[6]["appUrl"])
+            self.assertEqual(by_id[7]["messageType"], "card")
+            self.assertEqual(by_id[7]["cardUsername"], "wxid_card")
+            self.assertEqual(by_id[7]["appTitle"], "张三")
+
+    def test_export_v2_video_and_poster(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _work, account, cfg = self.make_fixture(root)
+            code = "777"
+            wxid = "account"
+            aes_key = hashlib.md5(f"{code}{wxid}".encode()).hexdigest()[:16].encode()
+            xor_key = int(code) & 0xFF
+            plain = b"\x00\x00\x00\x18ftypmp42" + os.urandom(96)
+            aes_size, xor_size = 32, 8
+            encrypted = AES.new(aes_key, AES.MODE_ECB).encrypt(
+                Padding.pad(plain[:aes_size], 16))
+            tail = bytes(value ^ xor_key for value in plain[-xor_size:])
+            data = (b"\x07\x08V2\x08\x07" + struct.pack("<LLx", aes_size, xor_size)
+                    + encrypted + plain[aes_size:-xor_size] + tail)
+            # The vendor video index keys files by their on-disk MD5, so the
+            # message md5 must match the V2 container's MD5.
+            md5 = hashlib.md5(data).hexdigest()
+
+            video_dir = account / "msg" / "video" / "2026-01"
+            video_dir.mkdir(parents=True, exist_ok=True)
+            (video_dir / f"{md5}.mp4").write_bytes(data)
+            (video_dir / f"{md5}.jpg").write_bytes(
+                b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\xff\xd9")
+
+            appdata = root / "appdata"
+            kvcomm = appdata / "Tencent" / "xwechat" / "1" / "kvcomm"
+            kvcomm.mkdir(parents=True)
+            (kvcomm / f"key_{code}_1.statistic").write_text("x", encoding="utf-8")
+
+            table = "Msg_" + hashlib.md5(TARGET.encode()).hexdigest()
+            content = f'<msg><videomsg md5="{md5}" playlength="12"/></msg>'
+            conn = sqlite3.connect(_work / "message" / "message_0.db")
+            conn.execute(
+                f'insert into "{table}" values (?, ?, ?, ?, ?, ?, ?)',
+                (8, "srv-8", 43, 1, TS + 80, content.encode("utf-8"), b""))
+            conn.commit()
+            conn.close()
+
+            out = root / "out"
+            res = self.run_native(
+                root, cfg, "export", TARGET, "json",
+                "--from", "2026-01-05", "--to", "2026-01-05",
+                "--output", str(out), "--limit", "0", "--contract", "weflow-v1",
+                "--non-interactive", "--media", "--json",
+                extra_env={"APPDATA": str(appdata)},
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            manifest = json.loads(
+                (out / f"{TARGET}_assets" / "manifest.json").read_text(encoding="utf-8"))
+            entry = manifest["messages"][f"8:{TS + 80}"]
+            self.assertEqual(entry["kind"], "video")
+            video_bytes = (out / entry["path"]).read_bytes()
+            self.assertEqual(video_bytes[4:8], b"ftyp")
+            self.assertTrue(entry.get("poster"))
+            self.assertTrue((out / entry["poster"]).is_file())
 
     def test_check(self):
         with tempfile.TemporaryDirectory() as tmp:

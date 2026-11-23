@@ -33,6 +33,8 @@
 - 撤回记录：批量撤回匹配原消息；单条撤回/孤立记录标记
 - 引用消息：还原被引用消息的发送者/原文（HTML 引用块、Markdown 引用）
 - 合并转发：展开内层文字/文件名/发送者/时间（HTML `<details>`、Markdown 引用块）
+- 转账/红包/位置/名片：结构化金额、标题、经纬度、名片账号；HTML 卡片/地图链接、Markdown 链接
+- 4.2 离线 key 缓存：`setup` 把逐库 raw key 保存到 `<baseDir>/keys.json`，后续可复用；`clean --purge-keys` 删除
 - 按时间（`--from/--to/--date/--days`）、按群、按个人
 - 公众号批量导出（`--all-official`）
 - 微信 4.2（`wechat42-export.mjs`，默认原生，当前维护）
@@ -106,7 +108,21 @@ weflow-cli check
 
 `weflow-cli init` 需要微信正在运行，并要求交互确认；请在终端里执行。
 
-> 4.1/4.2 wrapper 默认都走原生后端，导出不再需要 `weflow-cli`；上面的安装只为 `--legacy-weflow` 回退/对照。原生路径仍需要 Python venv 与 `work/`；4.1 原生还需要 `sqlcipher3`（`python -m pip install sqlcipher3-wheels`）。
+如果不想用 weflow-cli 的 venv，也可以自己建：
+
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\python -m pip install -r requirements.txt
+# macOS/Linux
+.venv/bin/python -m pip install -r requirements.txt
+
+node scripts/wechat42-export.mjs setup \
+  --account-root "<账号目录>" \
+  --venv-python ".venv\Scripts\python.exe"
+```
+
+> 4.2 默认走原生后端，导出不需要 `weflow-cli`；上面的 weflow-cli 安装只为 `--legacy-weflow` 回退/对照。4.2 原生只需要 Python venv 与 `work/`；`sqlcipher3` 只用于保留的 4.1 路径和 legacy sandbox。
 
 > 下面的示例默认用 4.2 入口 `wechat42-export.mjs`；微信 4.1 把命令名换成 `wechat41-export.mjs`，参数相同。`wechat-export.mjs` 是内部主命令，调试时才直接用。
 
@@ -229,7 +245,7 @@ python -m pip install imageio-ffmpeg
 
 本机实测（2026-11-02，某个群）：21 条表情消息，18 条本机有缓存并成功解密（PNG 3 / GIF 15），3 条本机没有缓存（微信从未下载或已清理），记为缺失而非猜测。
 
-`clean` 会删除 `sandbox/`、明文 `work/`、`home/` 和 `baseDir/_stickers`，但保留导出结果；下次导出会重新构建。4.1 用 `node scripts/wechat41-export.mjs clean` 删除 `wechat41/work`、`_stickers` 和映射临时文件。
+`clean` 会删除 `sandbox/`、明文 `work/`、`home/` 和 `baseDir/_stickers`，但保留导出结果；下次导出会重新构建。4.1 用 `node scripts/wechat41-export.mjs clean` 删除 `wechat41/work`、`_stickers` 和映射临时文件。4.2 的 `<baseDir>/keys.json` 是离线复用用的逐库 raw key 缓存，默认保留；需要删除时用 `node scripts/wechat42-export.mjs clean --purge-keys`。
 
 ### 完整性校验
 
@@ -345,7 +361,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 | `--all-groups / --all-persons` | 批量导出群/个人 |
 | `--all-official` | 批量导出公众号（`gh_`）会话 |
 | `--from/--to`、`--date`、`--days` | 时间范围；`--to` 含当天 |
-| `--types` | `text,image,file,video,voice,link,history,emoji,...,all`；默认 `text,image,file,video,voice,link,history` |
+| `--types` | `text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,...,all`；默认 `text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,call` |
 | `--media-strategy` | `auto` / `day` / `full` / `none` |
 | `--full-images` | 用原图而不是缓存缩略图（慢） |
 | `--no-video-scan` | 不扫描 `msg/video` |
@@ -372,13 +388,14 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 
 ## 环境要求
 
-- Windows 10/11 + 微信 4.x：重点支持
-- 微信 3.x：尽力兼容（视频目录按 `FileStorage/Video` 兜底）
-- Node.js 22.13+；Python 3.10+（仅图片/文件抽取需要）
-- 语音导出需要 `python -m pip install silk-python`（`pysilk` 预编译 wheel）；`pilk` 需要 MSVC，不作为首选
-- 表情包导出需要 `python -m pip install imageio-ffmpeg`（`wxgf` → H.265 → PNG/GIF）与 `cryptography`
-- `weflow-cli` 的 `check` 应显示消息库可读
-- `weflow-cli` 当前验证到微信 4.1.15.56；微信 **4.2** 使用独立的 `wechat42-export.mjs` 后端（见上文），不再走 `weflow-cli init`。
+- Windows 10/11 + 微信 **4.2.x**：当前维护
+- 微信 4.1 / 3.x：代码保留或尽力兼容，但不在当前维护/验收范围
+- Node.js 22.13+；Python 3.10+
+- Python 依赖：`python -m pip install -r requirements.txt`
+  - 语音：`silk-python`（`pysilk` 预编译 wheel）；`pilk` 需要 MSVC，不作为首选
+  - 表情包：`imageio-ffmpeg`（`wxgf` → H.265 → PNG/GIF）+ `cryptography`
+  - 4.1 保留路径 / legacy sandbox：可选 `sqlcipher3-wheels`
+- `weflow-cli` 仅 `--legacy-weflow` 需要；4.2 默认原生后端不走 `weflow-cli init`。
 
 ## 测试
 
@@ -386,7 +403,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 npm test
 ```
 
-当前 52 项 Node 测试 + 41 项 Python 测试，覆盖：
+当前 59 项 Node 测试 + 46 项 Python 测试，覆盖：
 
 - 参数解析、日期窗口、类型映射
 - 文件 appmsg / 视频 md5 / 群发送者前缀 / 链接 fallback
@@ -396,9 +413,11 @@ npm test
 - 完整性校验：数据库行数 = 原始 JSON = 导出 + 按类型跳过；缺行/重复/时间窗外可检出；`--deep` 按 `local_id+server_id` 逐条对账（含“计数相等但一丢一重”）
 - 撤回记录：批量撤回匹配原消息、单条撤回孤立记录、HTML/Markdown 标记
 - 引用/合并转发：`refermsg` → `quote`、`recorditem` → `records`；HTML/Markdown 渲染
+- 转账/红包/位置/名片：金额、标题、经纬度、名片账号进入 JSONL；HTML/Markdown 结构化展示
+- 文本型导出跳过媒体/表情映射（不扫媒体、不扫 sticker seed）
 - 只读命令白名单、输出路径保护
 - Level 2 原生 4.2 后端：sessions/contacts/export json（含图片/文件）
-- 端到端：假 `weflow-cli` + 合成微信目录，验证文本/图片/文件/视频/语音/表情、链接 fallback、缺失原因、dry-run、列表过滤、公众号批量、环境体检、输出目录保护
+- 端到端：假 `weflow-cli` + 合成微信目录，验证文本/图片/文件/视频/语音/表情、引用/合并转发、转账/红包/位置/名片、链接 fallback、缺失原因、dry-run、列表过滤、公众号批量、环境体检、输出目录保护
 
 ## 目录
 
@@ -414,6 +433,7 @@ REFERENCES.md                # 参考项目清单
 THIRD_PARTY_NOTICES.md       # 第三方代码/依赖/许可证
 NOTICE                       # 版权与来源声明
 docs/MERGE_PLAN.md           # 分支收敛记录（已完成；只剩 main）
+requirements.txt             # Python 依赖（4.2 原生/语音/表情）
 compat.json                  # 微信版本 → 上游 commit → 验证结果
 scripts/
   wechat-export.mjs          # 内部主命令（4.1/4.2 wrapper 调用；调试用）

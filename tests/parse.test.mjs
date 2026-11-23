@@ -57,6 +57,28 @@ test('quote and chat-history appmsgs are classified before link', () => {
   assert.equal(byRecords.type, 'history')
 })
 
+test('special appmsgs are classified before encoded media', () => {
+  const transfer = classifyMessage({
+    localType: 2000 * 0x1_0000_0000 + 49,
+    messageType: 'transfer',
+    parsedContent: '[转账] ¥88.00',
+  })
+  assert.equal(transfer.type, 'transfer')
+
+  const redpacket = classifyMessage({
+    localType: 2001 * 0x1_0000_0000 + 49,
+    messageType: 'redpacket',
+    parsedContent: '[红包] 大吉大利',
+  })
+  assert.equal(redpacket.type, 'redpacket')
+
+  const location = classifyMessage({ localType: 48, messageType: 'location' })
+  assert.equal(location.type, 'location')
+
+  const card = classifyMessage({ localType: 42, messageType: 'card' })
+  assert.equal(card.type, 'card')
+})
+
 test('encoded media types are classified from the XML shape', () => {
   const encoded = 21474836529 // 0x500000031 -> masks to 49
   assert.equal(classifyMessage({

@@ -193,6 +193,11 @@ export function classifyMessage(message) {
       || /^\[(?:聊天记录|笔记)\]/.test(parsedText)) {
     return { type: 'history', file: null }
   }
+  // Transfer/red-packet appmsgs also mask to localType 49; card/location have
+  // their own base types. Classify them before the encoded-media heuristic.
+  if (['transfer', 'redpacket', 'card', 'location'].includes(messageType)) {
+    return { type: messageType, file: null }
+  }
   if (messageType === 'video' || localType === 43 || looksLikeVideo) return { type: 'video', file: null }
   if (encodedMedia && !hasAppLinkMetadata) return { type: 'image', file: null }
   if (messageType === 'image' || localType === 3 || looksLikeImage) return { type: 'image', file: null }
@@ -218,6 +223,8 @@ export const TYPE_LABELS = {
   location: '位置',
   link: '链接',
   history: '聊天记录',
+  transfer: '转账',
+  redpacket: '红包',
   card: '卡片',
   call: '通话',
   system: '系统',

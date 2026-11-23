@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.safety import assert_outside  # noqa: E402
+from lib.keycache import db_rels, load_keys, save_keys  # noqa: E402
 
 
 def ensure_utf8():
@@ -112,6 +113,10 @@ def main():
     ap.add_argument("--venv-python", default="", help="weflow-cli 用的 Python 解释器路径")
     ap.add_argument("--no-sandbox", action="store_true", help="只解密到 work/，不重建 sandbox（Level 2 原生导出）")
     ap.add_argument("--run-check", action="store_true", help="构造后运行 weflow-cli sessions")
+    ap.add_argument("--keys-file", default="",
+                    help="逐库 raw key 缓存（默认 <work 父目录>/keys.json）")
+    ap.add_argument("--no-cache-keys", action="store_true", help="忽略已有 key 缓存")
+    ap.add_argument("--no-save-keys", action="store_true", help="不写入 key 缓存")
     args = ap.parse_args()
 
     extract_keys, decrypt_all = import_tool(args.tool_dir)
@@ -131,20 +136,65 @@ def main():
         db_out.mkdir(parents=True, exist_ok=True)
         work.mkdir(parents=True, exist_ok=True)
 
-    keys, meta = extract_keys(str(data_root))
+    keys_file = (Path(args.keys_file).resolve() if args.keys_file
+                 else work.parent / "keys.json")
+    assert_outside(account_root, keys_file, "key 缓存")
+
+    expected_rels = db_rels(data_root)
+    keys = None
+    meta = {}
+    saved = False
+    if not args.no_cache_keys:
+        keys = load_keys(keys_file, expected_rels)
+        if keys:
+            meta = {"mode": "cache", "source": str(keys_file)}
+            print(f"keys: {len(keys)} (cache)", file=sys.stderr)
+
+    if keys:
+        result = decrypt_all(str(data_root), str(work), keys,
+                             progress=lambda p: print(f"  decrypt {p}%", file=sys.stderr, flush=True))
+        if result.get("failed"):
+            print("! key 缓存无法解密（微信可能已换 key）；重新从进程提取", file=sys.stderr)
+            keys = None
+            result = None
+
     if not keys:
-        print(json.dumps({"success": False, "code": "KEY_NOT_FOUND", "meta": meta}, ensure_ascii=False))
-        return 2
+        keys, meta = extract_keys(str(data_root))
+        if not keys:
+            print(json.dumps({
+                "success": False,
+                "code": "KEY_NOT_FOUND",
+                "error": meta.get("message") or "未能提取到密钥",
+                "hint": "登录微信一次以提取 key，或提供有效的 --keys-file",
+                "meta": meta,
+            }, ensure_ascii=False))
+            return 2
+        print(f"keys: {len(keys)} ({meta.get('mode')})", file=sys.stderr)
+        # Force a rewrite: a failed cache attempt may have left partial files.
+        result = decrypt_all(str(data_root), str(work), keys, skip_fresh=False,
+                             progress=lambda p: print(f"  decrypt {p}%", file=sys.stderr, flush=True))
 
-    print(f"keys: {len(keys)} ({meta.get('mode')})", file=sys.stderr)
-    result = decrypt_all(str(data_root), str(work), keys,
-                         progress=lambda p: print(f"  decrypt {p}%", file=sys.stderr, flush=True))
+    if (not args.no_save_keys and meta.get("mode") != "cache"
+            and result and result.get("failed") == 0):
+        try:
+            save_keys(keys_file, data_root, account_root, keys)
+            saved = True
+            print(f"key 缓存已保存: {keys_file}", file=sys.stderr)
+        except OSError as exc:
+            print(f"! key 缓存写入失败: {exc}", file=sys.stderr)
 
+    key_summary = {
+        "total": len(keys),
+        "mode": meta.get("mode"),
+        "source": "cache" if meta.get("mode") == "cache" else "process",
+        "file": str(keys_file),
+        "saved": saved,
+    }
     if args.no_sandbox:
         print(json.dumps({
             "success": True,
             "mode": "native-only",
-            "keys": {"total": len(keys), "mode": meta.get("mode")},
+            "keys": key_summary,
             "decrypt": {"ok": result.get("ok"), "failed": result.get("failed"), "total": result.get("total")},
             "work": str(work),
             "sandbox": None,
@@ -244,7 +294,7 @@ def main():
 
     summary = {
         "success": True,
-        "keys": {"total": len(keys), "mode": meta.get("mode")},
+        "keys": key_summary,
         "decrypt": {"ok": result.get("ok"), "failed": result.get("failed"), "total": result.get("total")},
         "reencrypt": {"ok": ok, "failed": failed, "skipped": skipped},
         "sandbox": str(sandbox),

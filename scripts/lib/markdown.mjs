@@ -43,6 +43,16 @@ export function renderMarkdown({ target, records, manifest }) {
     const revoked = record.revoked ? '（已撤回）' : ''
     lines.push(`**${time} · ${sender}${revoked}**  \n${mdEscapeText(renderFaces(record.text))}`)
 
+    if (record.type === 'location' && record.location?.url) {
+      const label = record.location.title || '位置'
+      lines.push('')
+      lines.push(`[📍 ${label}](${String(record.location.url).replace(/\)/g, '%29')})`)
+    }
+    if (record.type === 'card' && record.contact?.username) {
+      lines.push('')
+      lines.push(`名片账号：\`${record.contact.username}\``)
+    }
+
     if (record.quote?.text) {
       const who = record.quote.sender ? ` ${record.quote.sender}` : ''
       lines.push('')

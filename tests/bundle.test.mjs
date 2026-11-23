@@ -5,6 +5,68 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildTargetBundle } from '../scripts/lib/bundle.mjs'
 
+test('bundle carries structured transfer, red-packet, location and card fields', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wechat-bundle-special-'))
+  try {
+    const bundleDir = join(root, 'bundle')
+    const rawDir = join(root, 'raw')
+    await mkdir(rawDir, { recursive: true })
+    const base = {
+      isSend: 0,
+      senderUsername: 'wxid_lisi',
+      sender: '李四',
+      content: '',
+      rawContent: '',
+    }
+    const rawMessages = [
+      { ...base, localId: 1, serverId: 's1', createTime: 1767578400,
+        messageType: 'transfer', amount: '¥88.00', appTitle: '转账',
+        appDescription: '说明', parsedContent: '[转账] ¥88.00' },
+      { ...base, localId: 2, serverId: 's2', createTime: 1767578460,
+        messageType: 'redpacket', appTitle: '恭喜发财', appDescription: '大吉大利',
+        parsedContent: '[红包] 大吉大利' },
+      { ...base, localId: 3, serverId: 's3', createTime: 1767578520,
+        messageType: 'location', lat: '31.2304', lng: '121.4737',
+        appTitle: '人民广场', appDescription: '上海',
+        appUrl: 'https://uri.amap.com/marker?position=121.4737,31.2304',
+        parsedContent: '[位置] 人民广场（上海）' },
+      { ...base, localId: 4, serverId: 's4', createTime: 1767578580,
+        messageType: 'card', cardUsername: 'wxid_card', appTitle: '张三',
+        parsedContent: '[名片] 张三' },
+    ]
+    await buildTargetBundle({
+      target: { id: '123@chatroom', name: '项目群', kind: 'group' },
+      rawMessages,
+      rawDir,
+      mediaManifest: null,
+      mediaMap: null,
+      revokeMap: null,
+      videoIndex: null,
+      contactMap: new Map([['wxid_lisi', '李四']]),
+      bundleDir,
+      types: new Set(['transfer', 'redpacket', 'location', 'card']),
+      mediaState: null,
+      warnings: [],
+      meta: {},
+    })
+
+    const lines = (await readFile(join(bundleDir, 'messages.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line))
+    const byId = new Map(lines.map((line) => [line.localId, line]))
+    assert.equal(byId.get(1).type, 'transfer')
+    assert.equal(byId.get(1).amount, '¥88.00')
+    assert.equal(byId.get(2).type, 'redpacket')
+    assert.equal(byId.get(2).redpacket.title, '恭喜发财')
+    assert.equal(byId.get(3).type, 'location')
+    assert.equal(byId.get(3).location.lat, '31.2304')
+    assert.match(byId.get(3).location.url, /uri\.amap\.com/)
+    assert.equal(byId.get(4).type, 'card')
+    assert.equal(byId.get(4).contact.username, 'wxid_card')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('bundle carries quote and merged-forward records into JSONL', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wechat-bundle-'))
   try {

@@ -35,7 +35,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from vendor.wechat42.export import ChatStore  # noqa: E402
-from lib.v2_decode import clean_account_id, find_codes  # noqa: E402
+from lib.v2_decode import MAGIC, clean_account_id, decode_v2_file, find_codes  # noqa: E402
 from lib.sticker import (  # noqa: E402
     any_sticker_file,
     derive_key as derive_sticker_key,
@@ -166,6 +166,10 @@ def to_weflow(item):
         "reply": parsed.get("reply") or "",
         "records": parsed.get("records") or [],
         "isNote": bool(parsed.get("is_note")),
+        "amount": parsed.get("amount") or "",
+        "lat": parsed.get("lat") or "",
+        "lng": parsed.get("lng") or "",
+        "cardUsername": parsed.get("username") or "",
     }
 
 
@@ -324,6 +328,8 @@ def write_assets(store, msgs, output: Path, talker: str, account: Path, work: Pa
         "documents": {"written": 0, "copied": 0, "unavailable": 0},
     }
     files = file_index(work, account)
+    v2_codes = None
+    wxid = clean_account_id(account.name)
     images_dir = assets / "images"
     files_dir = assets / "files"
     videos_dir = assets / "videos"
@@ -361,17 +367,40 @@ def write_assets(store, msgs, output: Path, talker: str, account: Path, work: Pa
         elif kind == "video":
             source = item.get("media") or ""
             md5 = item.get("video_md5") or ""
+            if source:
+                try:
+                    with open(source, "rb") as handle:
+                        is_v2 = handle.read(6) == MAGIC
+                except OSError:
+                    is_v2 = False
+                if is_v2:
+                    if v2_codes is None:
+                        v2_codes = find_codes()
+                    decoded = decode_v2_file(
+                        source, str(work / "_videos_v2"), wxid, v2_codes)
+                    if decoded:
+                        source = decoded
+                    else:
+                        print("! [NATIVE_V2_VIDEO_DECODE_FAILED] 视频是 V2 加密且无法解码；"
+                              "将复制原始字节", file=sys.stderr)
             ext = os.path.splitext(source)[1] or ".mp4"
             target = copy_asset(source, videos_dir,
                                 f'video_{item.get("local_id")}_{md5[:12]}{ext}')
             if target:
-                manifest["messages"][key] = {
+                entry = {
                     "path": f"{assets_name}/videos/{target.name}",
                     "kind": "video",
                     "name": target.name,
                     "bytes": target.stat().st_size,
                     "md5": md5,
                 }
+                poster = item.get("poster") or ""
+                poster_name = (f'poster_{item.get("local_id")}_{md5[:8]}'
+                               f'{os.path.splitext(poster)[1] or ".jpg"}')
+                poster_target = copy_asset(poster, images_dir, poster_name)
+                if poster_target:
+                    entry["poster"] = f"{assets_name}/images/{poster_target.name}"
+                manifest["messages"][key] = entry
         elif kind == "voice":
             if os.environ.get("WEFLOW_NATIVE_NO_VOICE") == "1":
                 continue

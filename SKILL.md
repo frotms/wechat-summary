@@ -15,6 +15,8 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 - 视频落盘：`weflow-cli` 原生只给 `[视频]` 标签，本 skill 从 `msg/video` 按 md5 找到 mp4 并复制
 - 统一产物：`index.html` / `transcript.md` / `messages.jsonl` / `manifest.json` / `media/`
 - 内容还原：引用消息（`quote`，HTML 引用块）、合并转发/笔记（`records`，HTML 展开列表）
+- 特殊消息：转账金额、红包、位置经纬度、名片账号进入 JSONL；HTML/Markdown 结构化展示
+- 4.2 离线 key 缓存：`setup` 成功后保存 `<baseDir>/keys.json`；后续 `setup` 优先用缓存，不需要微信重新登录/运行。缓存失效会自动回退到进程提取；`clean` 默认保留，`--purge-keys` 删除。
 
 ## 适用与边界
 
@@ -104,7 +106,8 @@ node scripts/wechat42-export.mjs search --query 1684X --from 2026-08-17 --to 202
 node scripts/wechat42-export.mjs status
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs check-updates
-node scripts/wechat42-export.mjs clean   # 删除 sandbox/明文 work/home/_stickers，保留导出结果
+node scripts/wechat42-export.mjs clean   # 删除 sandbox/明文 work/home/_stickers，保留导出结果和 keys.json
+node scripts/wechat42-export.mjs clean --purge-keys  # 同时删除离线 key 缓存
 node scripts/wechat41-export.mjs clean   # 删除 wechat41/work/_stickers/映射临时文件
 ```
 
@@ -230,12 +233,13 @@ node scripts/wechat42-export.mjs --target "<群ID>" --days 7 --no-sticker-map
 - Node.js **22.13+**
 - Python **3.10+**（原生读取/媒体都需要）
   - 如果 `python --version` 打开 Microsoft Store，说明命中的是“应用执行别名”；请安装 python.org 的 Python，并在“管理应用执行别名”里关掉 python/python3 的商店别名。
-  - **4.1 原生解密**：`python -m pip install sqlcipher3-wheels`。
-  - **语音导出（4.2/4.1）**：`python -m pip install silk-python`（`pysilk` 预编译 wheel）；`pilk` 在 Windows 上需要 MSVC，不作为首选。
-  - **表情包导出**：`python -m pip install imageio-ffmpeg`（微信 `wxgf` 容器是 H.265 裸流，要 ffmpeg 转码）；`cryptography` 用于 AES 解密。
+  - **一键安装 Python 依赖**：`python -m pip install -r requirements.txt`（cryptography、pycryptodome、zstandard、silk-python、imageio-ffmpeg）。
+  - **4.1 保留路径 / legacy sandbox（暂缓维护）**：可选 `python -m pip install sqlcipher3-wheels`。
+  - **语音导出**：`silk-python`（`pysilk` 预编译 wheel）；`pilk` 在 Windows 上需要 MSVC，不作为首选。
+  - **表情包导出**：`imageio-ffmpeg`（微信 `wxgf` 容器是 H.265 裸流，要 ffmpeg 转码）；`cryptography` 用于 AES 解密。
 - 微信桌面客户端已安装并登录
   - **表情包解密需要微信正在运行**（seed 在进程内存里），除非已用 `--sticker-seed` 指定或配置了 `emoticonSeed`。
-- `weflow-cli` **可选**：只有 `--legacy-weflow` 回退/对照需要；4.1/4.2 默认原生后端不需要。
+- `weflow-cli` **可选**：只有 `--legacy-weflow` 回退/对照需要；4.2 默认原生后端不需要。
 
 一次性安装：
 
@@ -262,7 +266,7 @@ weflow-cli check            # 看到 Python、消息库都为 ✓ 再继续
 | --- | --- | --- |
 | 目标 | “项目群”“张三”“所有群” | 跑 `--list --json`，让用户确认 |
 | 时间 | “最近 7 天”“2026-01-01 到 2026-01-31”“全部” | 默认全部时间，但要提醒可能很大 |
-| 类型 | 文字 / 图片 / 文件 / 视频 / 全部 | 默认 `text,image,file,video,voice,emoji,link,history` |
+| 类型 | 文字 / 图片 / 文件 / 视频 / 全部 | 默认 `text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,call` |
 | 输出位置 | 默认 `~/.wechat-export/<时间戳>` | 一般不用问；涉及交付时再指定 |
 
 ### 第 1 步：环境体检
@@ -337,6 +341,7 @@ node scripts/wechat42-export.mjs --all-groups --days 7 --dry-run
 --types video         # 只需扫描 msg/video
 --types emoji         # 表情（内置表情码 + 自定义表情包）
 --types history       # 合并转发 / 笔记（展开内层文字、文件名、发送者、时间）
+--types transfer,redpacket,location,card   # 转账 / 红包 / 位置 / 名片
 --types all           # 全部类型（含 link/history/article/emoji 等）
 ```
 

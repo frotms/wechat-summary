@@ -60,3 +60,43 @@ test('history type uses the chat-history label', () => {
   assert.match(html, /type-history/)
   assert.match(html, /聊天记录 · 2 条/)
 })
+
+test('special messages render structured cards and links', () => {
+  const records = [
+    fixtureRecord({
+      type: 'transfer', text: '[转账] ¥88.00', amount: '¥88.00',
+      quote: null, records: [],
+    }),
+    fixtureRecord({
+      type: 'redpacket', text: '[红包] 大吉大利',
+      redpacket: { title: '恭喜发财', description: '大吉大利' },
+      quote: null, records: [],
+    }),
+    fixtureRecord({
+      type: 'location', text: '[位置] 人民广场（上海）',
+      location: {
+        lat: '31.2304', lng: '121.4737', title: '人民广场', city: '上海',
+        url: 'https://uri.amap.com/marker?position=121.4737,31.2304',
+      },
+      quote: null, records: [],
+    }),
+    fixtureRecord({
+      type: 'card', text: '[名片] 张三',
+      contact: { username: 'wxid_card', title: '张三' },
+      quote: null, records: [],
+    }),
+  ]
+  const html = renderHtml({ target, records, manifest })
+  assert.match(html, /class="special transfer"/)
+  assert.match(html, /¥88\.00/)
+  assert.match(html, /class="special redpacket"/)
+  assert.match(html, /恭喜发财/)
+  assert.match(html, /class="special location"/)
+  assert.match(html, /uri\.amap\.com/)
+  assert.match(html, /class="special card"/)
+  assert.match(html, /wxid_card/)
+
+  const md = renderMarkdown({ target, records, manifest })
+  assert.match(md, /\[📍 人民广场\]\(https:\/\/uri\.amap\.com/)
+  assert.match(md, /名片账号：`wxid_card`/)
+})

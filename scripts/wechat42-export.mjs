@@ -16,7 +16,7 @@
  *     --account-root "<xwechat_files>/<account>"
  *   node scripts/wechat42-export.mjs --target "群名" --days 7 --types text,image,file,video
  *   node scripts/wechat42-export.mjs search --query 1684X --from 2026-08-17 --to 2026-11-17
- *   node scripts/wechat42-export.mjs clean
+ *   node scripts/wechat42-export.mjs clean [--purge-keys]
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -25,6 +25,8 @@ import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { nowStamp } from './lib/time.mjs'
 import { isPathInside } from './lib/config.mjs'
+import { parseArgv } from './lib/args.mjs'
+import { typesNeedMedia, typesNeedNativeAssets } from './lib/types.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MAIN = join(HERE, 'wechat-export.mjs')
@@ -52,7 +54,7 @@ function usage() {
   node scripts/wechat42-export.mjs doctor
   node scripts/wechat42-export.mjs check-updates
   node scripts/wechat42-export.mjs audit --output <导出目录> [--deep] [--json]
-  node scripts/wechat42-export.mjs clean
+  node scripts/wechat42-export.mjs clean [--purge-keys]
 
 setup:
   --tool-dir <目录>        可选：外部 wechat-exporter 源码目录（MIT）；缺省用内置 vendor
@@ -68,6 +70,7 @@ export:
   所有参数原样传给 scripts/wechat-export.mjs；额外支持：
   --refresh                先重建 sandbox
   --no-media-map           不生成视频/图片补全映射（只依赖 weflow manifest）
+  --with-media-map         强制生成 media-map（native 默认会跳过冗余映射）
   --no-sticker-map         不生成表情包映射（表情只保留文字标签）
   --no-voice-map           不生成/导出语音（只保留文字标签）
   --sticker-seed <值>      表情包解密种子（缺省自动探测：配置或微信进程内存）
@@ -76,7 +79,8 @@ export:
   --legacy-weflow          回退到 weflow-cli 读取/导出（Level 2 对照用）
 
 clean:
-  删除 sandbox/明文 work/home（含 sandbox 密钥配置），保留已导出的结果。
+  删除 sandbox/明文 work/home/_stickers，保留导出结果和 key 缓存。
+  --purge-keys  同时删除 key 缓存（离线复用文件）。
 
 doctor:
   检查 4.2 配置、上游、sandbox、venv、weflow-cli 读库和 sessions；输出 JSON。
@@ -132,6 +136,7 @@ function parseFlags(args) {
     if (token === '--native-only') { values.nativeOnly = true; continue }
     if (token === '--with-sandbox') { values.withSandbox = true; continue }
     if (token === '--no-media-map') { values.noMediaMap = true; continue }
+    if (token === '--with-media-map') { values.withMediaMap = true; continue }
     if (token === '--no-sticker-map') { values.noStickerMap = true; continue }
     if (token === '--no-voice-map') { values.noVoiceMap = true; continue }
     if (token === '--no-revoke-map') { values.noRevokeMap = true; continue }
@@ -147,8 +152,27 @@ function parseFlags(args) {
   return { values, rest }
 }
 
-function run(command, args, options = {}) {
-  const stdio = options.capture
+function exportNeedsMedia(args) {
+  try {
+    const { opts } = parseArgv(args)
+    return typesNeedMedia(opts.types)
+  } catch {
+    // Unknown flags should fail later in the main parser; assume media so we
+    // never skip work the export might need.
+    return true
+  }
+}
+
+function exportNeedsNativeAssets(args) {
+  try {
+    const { opts } = parseArgv(args)
+    return typesNeedNativeAssets(opts.types)
+  } catch {
+    return true
+  }
+}
+
+function run(command, args, options = {}) {  const stdio = options.capture
     ? 'pipe'
     : (options.stdoutToStderr ? ['inherit', 'pipe', 'inherit'] : 'inherit')
   const res = spawnSync(command, args, {
@@ -483,12 +507,30 @@ function runExport(values, args) {
 
   let mediaMapPath = null
   let revokeMapPath = null
-  const wantStickers = !values.noStickerMap && !values.noMediaMap
-  if (!dryRun && (!values.noMediaMap || !values.noRevokeMap)) {
+  // Text/quote/history/link-only exports do not need image/file/video/voice/
+  // sticker maps. Skipping them avoids media scans and the sticker-seed memory
+  // scan entirely.
+  const wantMedia = exportNeedsMedia(args)
+  // In native mode, `export --media` (image/file types) already writes
+  // images/files/videos/posters/voice/stickers. A separate media map would
+  // rescan the same data. Keep it only for video/voice/emoji-only exports or
+  // when explicitly requested with --with-media-map.
+  const nativeAssets = nativeDefault && !values.withMediaMap
+    && exportNeedsNativeAssets(args)
+  const wantMediaMap = wantMedia && !values.noMediaMap && !nativeAssets
+  const wantStickers = wantMedia && !values.noStickerMap && !values.noMediaMap && !nativeAssets
+  const wantRevokeMap = !values.noRevokeMap
+  if (!dryRun && !wantMedia) {
+    console.error('导出类型不含媒体：跳过媒体/表情映射')
+  }
+  if (!dryRun && wantMedia && nativeAssets) {
+    console.error('native 原生媒体：跳过 media/sticker map（需要对照时加 --with-media-map）')
+  }
+  if (!dryRun && (wantMediaMap || wantRevokeMap)) {
     if (!nativeDefault) ensurePythonCache(config)
     const plan = dryRunTargets(config, forward)
     if (plan?.targets?.length) {
-      if (!values.noMediaMap) {
+      if (wantMediaMap) {
         const mapPath = join(config.baseDir, `media-map-${nowStamp()}.json`)
         const merged = buildMediaMap(config, plan.targets, plan.time, mapPath)
         if (merged) {
@@ -516,7 +558,7 @@ function runExport(values, args) {
           }
         }
       }
-      if (!values.noRevokeMap) {
+      if (wantRevokeMap) {
         const revokePath = join(config.baseDir, `revoke-map-${nowStamp()}.json`)
         const revokes = buildRevokeMap(config, plan.targets, plan.time, revokePath)
         if (revokes) {
@@ -524,6 +566,8 @@ function runExport(values, args) {
           console.error(`撤回映射: ${Object.keys(revokes.items).length} 条，孤立 ${revokes.orphans.length} 条`)
         }
       }
+    } else {
+      console.error('没有解析到目标，跳过映射')
     }
   }
 
@@ -753,7 +797,7 @@ function runDoctor() {
   if (!ready) process.exitCode = 3
 }
 
-function runClean() {
+function runClean(args = []) {
   const config = readConfig()
   if (!config) { console.log('未配置 4.2 后端'); return }
   for (const dir of [config.sandboxDir, config.workDir, config.homeDir, join(config.baseDir, '_stickers')]) {
@@ -767,6 +811,15 @@ function runClean() {
     for (const name of maps) rmSync(join(config.baseDir, name), { force: true })
     if (maps.length) console.log(`已删除: ${maps.length} 个媒体映射临时文件`)
   }
+  const keysFile = join(config.baseDir, 'keys.json')
+  if (args.includes('--purge-keys')) {
+    if (existsSync(keysFile)) {
+      rmSync(keysFile, { force: true })
+      console.log(`已删除 key 缓存: ${keysFile}`)
+    }
+  } else if (existsSync(keysFile)) {
+    console.log(`已保留 key 缓存（离线复用）: ${keysFile}；需要删除加 --purge-keys`)
+  }
   console.log('已保留配置与导出结果；下次导出会重新构建 work/（或 sandbox）。')
 }
 
@@ -779,7 +832,7 @@ function main() {
   if (command === 'doctor') { runDoctor(); return }
   if (command === 'check-updates') { runCheckUpdates(); return }
   if (command === 'audit') { runAudit(argv.slice(1)); return }
-  if (command === 'clean') { runClean(); return }
+  if (command === 'clean') { runClean(argv.slice(1)); return }
   if (command === 'search') {
     const { values } = parseSearchFlags(argv.slice(1))
     runSearch(values)

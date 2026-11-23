@@ -131,6 +131,41 @@ function renderRecords(record) {
     + `<div class="record-list">${rows}</div></details>`
 }
 
+function renderSpecial(record) {
+  if (record.type === 'location') {
+    const loc = record.location || {}
+    const label = loc.title || record.text || '位置'
+    const coords = [loc.lat, loc.lng].filter(Boolean).join(', ')
+    const meta = [loc.city, coords].filter(Boolean).join(' · ')
+    const inner = `<span class="special-icon">📍</span><span class="special-title">${escapeHtml(label)}</span>`
+      + (meta ? `<span class="special-meta">${escapeHtml(meta)}</span>` : '')
+    const url = safeHttpUrl(loc.url)
+    return url
+      ? `<a class="special location" href="${escapeHtml(url)}" target="_blank" rel="noopener">${inner}</a>`
+      : `<div class="special location">${inner}</div>`
+  }
+  if (record.type === 'transfer') {
+    return `<div class="special transfer"><span class="special-icon">💸</span>`
+      + `<span class="special-title">转账</span>`
+      + `<span class="special-meta">${escapeHtml(record.amount || record.text || '')}</span></div>`
+  }
+  if (record.type === 'redpacket') {
+    const redpacket = record.redpacket || {}
+    return `<div class="special redpacket"><span class="special-icon">🧧</span>`
+      + `<span class="special-title">${escapeHtml(redpacket.title || record.text || '微信红包')}</span>`
+      + (redpacket.description ? `<span class="special-meta">${escapeHtml(redpacket.description)}</span>` : '')
+      + '</div>'
+  }
+  if (record.type === 'card') {
+    const contact = record.contact || {}
+    return `<div class="special card"><span class="special-icon">👤</span>`
+      + `<span class="special-title">${escapeHtml(contact.title || record.text || '名片')}</span>`
+      + (contact.username ? `<span class="special-meta">${escapeHtml(contact.username)}</span>` : '')
+      + '</div>'
+  }
+  return ''
+}
+
 function renderMessage(record) {
   if (record.type === 'system') {
     return `<div class="msg system" data-type="system" data-sender="${escapeHtml(record.sender)}" data-text="${escapeHtml(record.text.toLowerCase())}">`
@@ -146,6 +181,11 @@ function renderMessage(record) {
     record.link?.url,
     record.quote?.text,
     ...(record.records || []).map((item) => item.text),
+    record.amount,
+    record.location?.title,
+    record.location?.city,
+    record.contact?.username,
+    record.redpacket?.title,
     record.revoked ? '已撤回' : '',
   ]
     .filter(Boolean)
@@ -153,8 +193,10 @@ function renderMessage(record) {
     .toLowerCase()
   const media = renderMedia(record)
   const missing = renderMissing(record)
+  const special = renderSpecial(record)
   const hasOwnMedia = Boolean(record.media?.image || record.media?.video || record.media?.file || record.media?.voice || record.media?.sticker)
   const showText = record.text
+    && !special
     && !(record.type === 'image' && record.text === '[图片]')
     && !(record.type === 'emoji' && record.text === '[表情]')
     && !(hasOwnMedia && (record.type === 'file' || record.type === 'video' || record.type === 'voice'))
@@ -166,14 +208,14 @@ function renderMessage(record) {
     + `<div class="meta"><span class="sender">${escapeHtml(senderName)}</span>`
     + `${record.revoked ? '<span class="revoked-badge">已撤回</span>' : ''}`
     + `<time>${escapeHtml(shortTime(record.localTime))}</time></div>`
-    + `<div class="bubble">${showText ? `<div class="text">${escapeHtml(renderFaces(record.text))}</div>` : ''}${renderQuote(record)}${renderRecords(record)}${media}${missing}</div>`
+    + `<div class="bubble">${showText ? `<div class="text">${escapeHtml(renderFaces(record.text))}</div>` : ''}${special}${renderQuote(record)}${renderRecords(record)}${media}${missing}</div>`
     + `</div></article>`
 }
 
 function typeChips(records) {
   const counts = {}
   for (const record of records) counts[record.type] = (counts[record.type] || 0) + 1
-  const order = ['text', 'image', 'file', 'video', 'voice', 'emoji', 'link', 'history', 'card', 'location', 'system', 'quote', 'other']
+  const order = ['text', 'image', 'file', 'video', 'voice', 'emoji', 'link', 'history', 'transfer', 'redpacket', 'card', 'location', 'system', 'quote', 'other']
   const present = order.filter((type) => counts[type])
   const chips = [`<button class="chip active" data-filter-type="all">全部 <b>${records.length}</b></button>`]
   for (const type of present) {
@@ -356,6 +398,15 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 .rec-sender { font-weight: 600; margin-right: 6px; }
 .rec-time { color: var(--muted); margin-right: 6px; }
 .rec-text { display: block; margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.special {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+  margin-top: 2px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--text); text-decoration: none;
+}
+.special.location:hover { border-color: var(--brand); }
+.special-icon { font-size: 18px; }
+.special-title { font-weight: 600; }
+.special-meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .missing { margin-top: 6px; padding: 6px 9px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
 .msg.system { justify-content: center; color: var(--muted); font-size: 12px; }
 .msg.system span { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }

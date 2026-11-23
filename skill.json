@@ -1,14 +1,37 @@
 {
   "name": "wechat-export",
-  "version": "1.10.3",
+  "version": "1.10.5",
   "category": "other/wechat",
   "source": "自建",
   "status": "draft",
   "author": "chenxi liu",
   "license": "MIT",
   "createdAt": "2026-11-16",
-  "updatedAt": "2026-11-19",
+  "updatedAt": "2026-11-20",
   "changelog": [
+    {
+      "version": "1.10.5",
+      "date": "2026-11-20",
+      "author": "chenxi liu",
+      "changes": [
+        "4.2 离线 key 缓存：setup 把逐库 raw key 保存到 <baseDir>/keys.json；后续 setup 优先用缓存，不需要微信重新登录/运行；缓存失效自动回退进程提取",
+        "clean 默认保留 key 缓存，--purge-keys 删除；密钥文件 0600（尽力）且不在微信账号目录内",
+        "native 媒体：V2 视频解码 + 视频封面复制；types 含 image/file 时跳过冗余 media-map，--with-media-map 可强制",
+        "测试增至 59 项 Node + 46 项 Python"
+      ]
+    },
+    {
+      "version": "1.10.4",
+      "date": "2026-11-20",
+      "author": "chenxi liu",
+      "changes": [
+        "文本型导出（--types 不含 image/file/video/voice/emoji）跳过 media/sticker map，不再扫媒体和 sticker seed",
+        "转账/红包/位置/名片结构化：amount/redpacket/location/contact 进入 JSONL；HTML 卡片/地图链接、Markdown 链接",
+        "默认 --types 增加 quote/transfer/redpacket/location/card/call，避免引用和特殊消息在默认导出中丢失",
+        "新增 requirements.txt 和手动 venv 安装说明（Skill 定位：不做安装器/GUI）",
+        "测试增至 58 项 Node + 42 项 Python"
+      ]
+    },
     {
       "version": "1.10.3",
       "date": "2026-11-19",

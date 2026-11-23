@@ -53,6 +53,8 @@ node scripts/wechat42-export.mjs check-updates
 node scripts/wechat42-export.mjs setup
 ```
 
+> 4.2 会把逐库 raw key 缓存在 `<baseDir>/keys.json`（离线复用）。微信升级或换账号后缓存可能失效；`setup` 会检测失败并自动回退到进程提取。要强制重新提取，删除该文件或运行 `clean --purge-keys` 后再 `setup`。
+
 导出时加 `--refresh` 可以强制重建 sandbox（legacy 路径）。
 
 ## 3. 小范围金丝雀
@@ -102,8 +104,8 @@ node scripts/wechat42-export.mjs audit --output "<临时目录>" --deep
 
 ## 6. 发布前检查
 
-- [ ] `npm test` 全绿（52 项 Node）
-- [ ] `npm run test:py` 全绿（41 项 Python）
+- [ ] `npm test` 全绿（59 项 Node）
+- [ ] `npm run test:py` 全绿（46 项 Python）
 - [ ] 4.2 真机小范围金丝雀 + `audit --deep` 通过
 - [ ] `compat.json` 更新微信版本、上游 commit、验证结果
 - [ ] 更新 `STATUS.md` 的基线和已知限制

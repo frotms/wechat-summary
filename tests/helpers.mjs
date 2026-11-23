@@ -64,6 +64,7 @@ export function makeWorkspace() {
   const group = '123@chatroom'
   const person = 'wxid_zhangsan'
   const official = 'gh_news'
+  const specialGroup = 'special@chatroom'
 
   const messages = {
     [group]: [
@@ -134,6 +135,55 @@ export function makeWorkspace() {
         parsedContent: '推送', messageType: 'text',
       },
     ],
+    [specialGroup]: [
+      {
+        localId: 30, serverId: 'q1', localType: 49, createTime: ts(2026, 1, 5, 13, 0),
+        isSend: 0, senderUsername: 'wxid_lisi', content: '', rawContent: '',
+        parsedContent: '[引用] 回复 | 引用自 张三：原来的消息',
+        messageType: 'quote',
+        quote: { sender: '张三', text: '原来的消息', kind: 'text' },
+        reply: '回复',
+      },
+      {
+        localId: 31, serverId: 'q2', localType: 49, createTime: ts(2026, 1, 5, 13, 1),
+        isSend: 0, senderUsername: 'wxid_lisi', content: '', rawContent: '',
+        parsedContent: '[聊天记录] 群聊的聊天记录 · 2 条',
+        messageType: 'chat_history',
+        records: [
+          { kind: 'text', sender: '张三', time: '10:00', text: '你好' },
+          { kind: 'file', sender: '李四', time: '10:01', text: '报告.pdf' },
+        ],
+      },
+      {
+        localId: 32, serverId: 'q3', localType: 49, createTime: ts(2026, 1, 5, 13, 2),
+        isSend: 0, senderUsername: 'wxid_lisi', content: '', rawContent: '',
+        parsedContent: '[转账] ¥88.00', messageType: 'transfer',
+        amount: '¥88.00', appTitle: '转账', appDescription: '说明',
+      },
+      {
+        localId: 33, serverId: 'q4', localType: 49, createTime: ts(2026, 1, 5, 13, 3),
+        isSend: 0, senderUsername: 'wxid_lisi', content: '', rawContent: '',
+        parsedContent: '[红包] 大吉大利', messageType: 'redpacket',
+        appTitle: '恭喜发财', appDescription: '大吉大利',
+      },
+      {
+        localId: 34, serverId: 'q5', localType: 48, createTime: ts(2026, 1, 5, 13, 4),
+        isSend: 0, senderUsername: 'wxid_lisi',
+        content: '<msg><location x="31.2304" y="121.4737" label="人民广场" cityname="上海"/></msg>',
+        rawContent: '<msg><location x="31.2304" y="121.4737" label="人民广场" cityname="上海"/></msg>',
+        parsedContent: '[位置] 人民广场（上海）', messageType: 'location',
+        lat: '31.2304', lng: '121.4737', appTitle: '人民广场', appDescription: '上海',
+        appUrl: 'https://uri.amap.com/marker?position=121.4737,31.2304',
+      },
+      {
+        localId: 35, serverId: 'q6', localType: 42, createTime: ts(2026, 1, 5, 13, 5),
+        isSend: 0, senderUsername: 'wxid_lisi',
+        content: '<msg username="wxid_card" nickname="张三" />',
+        rawContent: '<msg username="wxid_card" nickname="张三" />',
+        parsedContent: '[名片] 张三', messageType: 'card',
+        cardUsername: 'wxid_card', appTitle: '张三',
+      },
+    ],
   }
 
   const fixture = {
@@ -141,6 +191,7 @@ export function makeWorkspace() {
       { username: group, displayName: '项目群', lastTimestamp: ts(2026, 1, 6, 9, 0), unreadCount: 2, summary: '收到' },
       { username: person, displayName: '张三', lastTimestamp: ts(2026, 1, 5, 11, 1), unreadCount: 0, summary: '你好' },
       { username: official, displayName: '某公众号', lastTimestamp: ts(2026, 1, 5, 12, 0), unreadCount: 0, summary: '推送' },
+      { username: specialGroup, displayName: '特殊群', lastTimestamp: ts(2026, 1, 5, 13, 5), unreadCount: 0, summary: '[名片] 张三' },
     ],
     contacts: [
       { username: group, displayName: '项目群' },

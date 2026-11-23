@@ -16,6 +16,7 @@
 
 - 4.2 的逐库 raw key 只在内存中使用；不打印到 stdout/stderr，不写入导出目录。
 - sandbox 模式下，`<baseDir>/home/.weflow-cli/config.json` 含 **sandbox 密钥**（不是原微信 key），由 `clean` 删除。
+- 4.2 可选离线复用：`<baseDir>/keys.json` 保存逐库 raw key（`setup` 提取成功后写入）。该文件在微信账号目录外，尽力设为 0600；`clean` 默认保留，`clean --purge-keys` 删除。它等同于可直接解密微信库的敏感凭据，请勿提交/上传。
 - 4.1 的 `decryptKey` / `ntKey+ntSalt` 只读使用；不打印。
 - `doctor` / `status` 只报告配置、work、venv 状态和密钥数量，不输出密钥内容。
 - 不要把 `~/.wechat-export/` 下的配置、工作目录、导出物提交到 Git 或上传。
@@ -43,6 +44,7 @@
 | `<baseDir>/sandbox/` | legacy 重加密 sandbox | `wechat42-export.mjs clean` |
 | `<baseDir>/home/` | sandbox 配置（含 sandbox 密钥） | `wechat42-export.mjs clean` |
 | `<baseDir>/_stickers/` | 表情包解码缓存 | `wechat42-export.mjs clean` |
+| `<baseDir>/keys.json` | 4.2 逐库 raw key 缓存（离线复用） | `clean` 默认保留；`clean --purge-keys` 删除 |
 | `~/.wechat-export/wechat41/{work,_stickers}` | 4.1 临时数据（暂不维护） | `wechat41-export.mjs clean` |
 
 - `<baseDir>` 默认 `~/.wechat-export/wechat42`，可由 `setup --base-dir` 指定。
