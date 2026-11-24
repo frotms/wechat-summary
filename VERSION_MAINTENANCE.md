@@ -104,8 +104,8 @@ node scripts/wechat42-export.mjs audit --output "<临时目录>" --deep
 
 ## 6. 发布前检查
 
-- [ ] `npm test` 全绿（59 项 Node）
-- [ ] `npm run test:py` 全绿（59 项 Python）
+- [ ] `npm test` 全绿（81 项 Node）
+- [ ] `npm run test:py` 全绿（61 项 Python）
 - [ ] 4.2 真机小范围金丝雀 + `audit --deep` 通过
 - [ ] `compat.json` 更新微信版本、上游 commit、验证结果
 - [ ] 更新 `STATUS.md` 的基线和已知限制

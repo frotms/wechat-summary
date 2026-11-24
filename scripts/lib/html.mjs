@@ -76,6 +76,19 @@ function renderMedia(record) {
       + `<span class="link-url">${escapeHtml(record.link.url)}</span></a>`)
   }
 
+  if (record.miniprogram) {
+    const mp = record.miniprogram
+    const meta = [mp.appName, mp.appId, mp.pagePath].filter(Boolean).join(' · ')
+    const title = escapeHtml(mp.title || '小程序')
+    const body = `<span class="link-title">🧩 ${title}</span>`
+      + (meta ? `<span class="link-url">${escapeHtml(meta)}</span>` : '')
+    if (/^https?:\/\//i.test(mp.url || '')) {
+      parts.push(`<a class="link-card" href="${escapeHtml(mp.url)}" target="_blank" rel="noopener">${body}</a>`)
+    } else {
+      parts.push(`<div class="link-card">${body}</div>`)
+    }
+  }
+
   if (record.article?.path) {
     parts.push(`<a class="article-card" href="${mediaUrl(record.article.path)}" target="_blank" rel="noopener">`
       + `<span class="article-icon">📄</span>`
@@ -109,6 +122,7 @@ function renderMissing(record) {
     'unrecognized-video-magic': '视频文件头无法识别，可能不是标准 MP4',
     'media-extraction-failed': '媒体抽取失败（检查 Python 依赖）',
     'media-skipped': '本次导出没有抽取媒体（--no-media 或 --media-strategy none）',
+    'forward-media-not-local': '合并转发内层媒体本机没有缓存；未从 CDN 猜测下载',
   }
   return record.missing.map((item) => {
     const label = labels[item.kind] || item.kind
@@ -131,7 +145,21 @@ function renderRecords(record) {
     const who = item.sender ? `<span class="rec-sender">${escapeHtml(item.sender)}</span>` : ''
     const time = item.time ? `<span class="rec-time">${escapeHtml(item.time)}</span>` : ''
     const text = `<span class="rec-text">${escapeHtml(item.text || '')}</span>`
-    return `<div class="rec-item">${who}${time}${text}</div>`
+    let media = ''
+    if (item.media) {
+      if (item.kind === 'image') {
+        media = `<a class="media-link" href="${mediaUrl(item.media)}" target="_blank" rel="noopener">`
+          + `<img class="forward-image" loading="lazy" src="${mediaUrl(item.media)}" alt="转发图片"></a>`
+      } else if (item.kind === 'video') {
+        media = `<a class="video-download" href="${mediaUrl(item.media)}" target="_blank" rel="noopener">🎬 打开/下载转发视频</a>`
+      } else if (item.kind === 'file') {
+        media = `<a class="file-card" href="${mediaUrl(item.media)}" download>📄 ${escapeHtml(item.title || '转发文件')}</a>`
+      }
+    } else if (item.mediaStatus === 'missing') {
+      const label = { image: '图片', video: '视频', file: '文件', voice: '语音' }[item.kind] || item.kind || '媒体'
+      media = `<span class="missing">[${escapeHtml(label)}未导出] 本机没有缓存</span>`
+    }
+    return `<div class="rec-item">${who}${time}${text}${media}</div>`
   }).join('')
   const title = record.isNote ? '笔记' : '聊天记录'
   return `<details class="record"><summary>💬 ${title} · ${record.records.length} 条</summary>`
@@ -223,7 +251,7 @@ function renderMessage(record) {
 function typeChips(records) {
   const counts = {}
   for (const record of records) counts[record.type] = (counts[record.type] || 0) + 1
-  const order = ['text', 'image', 'file', 'video', 'voice', 'emoji', 'link', 'history', 'transfer', 'redpacket', 'card', 'location', 'system', 'quote', 'other']
+  const order = ['text', 'image', 'file', 'video', 'voice', 'emoji', 'link', 'miniprogram', 'history', 'transfer', 'redpacket', 'card', 'location', 'system', 'quote', 'other']
   const present = order.filter((type) => counts[type])
   const chips = [`<button class="chip active" data-filter-type="all">全部 <b>${records.length}</b></button>`]
   for (const type of present) {

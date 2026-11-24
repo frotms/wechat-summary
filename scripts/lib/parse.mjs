@@ -98,6 +98,36 @@ export function parseVideoMeta(rawContent) {
   }
 }
 
+
+/**
+ * Mini-program / cloud-document appmsg (subtype 33/36). These are localType 49
+ * but must not be rendered as ordinary links: the useful fields live inside
+ * <weappinfo>.
+ */
+export function parseMiniProgramMeta(rawContent) {
+  const xml = normalizeXml(rawContent)
+  if (!xml || !xml.includes('<appmsg')) return null
+  const appmsg = /<appmsg[^>]*>([\s\S]*?)<\/appmsg>/i.exec(xml)
+  if (!appmsg) return null
+  const body = appmsg[1]
+  const appType = firstTag(body, 'type')
+  if (!['33', '36'].includes(appType)) return null
+  const weapp = /<weappinfo[^>]*>([\s\S]*?)<\/weappinfo>/i.exec(body)
+  const meta = weapp ? weapp[1] : ''
+  const pick = (tag) => firstTag(meta, tag) || firstTag(body, tag)
+  return {
+    appType,
+    title: firstTag(body, 'title'),
+    description: firstTag(body, 'des'),
+    appName: pick('appname') || firstTag(body, 'sourcedisplayname') || firstTag(body, 'source'),
+    appId: pick('appid') || firstAttr(body, 'appid'),
+    pagePath: pick('pagepath'),
+    username: pick('username'),
+    iconUrl: pick('iconurl'),
+    url: firstTag(body, 'url'),
+  }
+}
+
 export function parseLinkMeta(rawContent) {
   const xml = normalizeXml(rawContent)
   if (!xml) return null
@@ -198,6 +228,9 @@ export function classifyMessage(message) {
   if (['transfer', 'redpacket', 'card', 'location'].includes(messageType)) {
     return { type: messageType, file: null }
   }
+  if (messageType === 'miniprogram' || /^\[小程序\]/.test(parsedText)) {
+    return { type: 'miniprogram', file: null }
+  }
   if (messageType === 'video' || localType === 43 || looksLikeVideo) return { type: 'video', file: null }
   if (encodedMedia && !hasAppLinkMetadata) return { type: 'image', file: null }
   if (messageType === 'image' || localType === 3 || looksLikeImage) return { type: 'image', file: null }
@@ -222,6 +255,7 @@ export const TYPE_LABELS = {
   emoji: '表情',
   location: '位置',
   link: '链接',
+  miniprogram: '小程序',
   history: '聊天记录',
   transfer: '转账',
   redpacket: '红包',
@@ -271,6 +305,10 @@ export function buildText(message, classified, senderId = '') {
       return parsed || '[表情]'
     case 'location':
       return parsed || '[位置]'
+    case 'miniprogram': {
+      const mp = parseMiniProgramMeta(raw)
+      return parsed || `[小程序] ${mp?.title || '未命名小程序'}`
+    }
     case 'link':
     case 'card':
     case 'history': {

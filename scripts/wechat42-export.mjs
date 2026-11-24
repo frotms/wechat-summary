@@ -36,6 +36,9 @@ const STICKER_MAP = join(HERE, 'wechat-sticker-map.py')
 const STICKER_SEED = join(HERE, 'wechat-sticker-seed.py')
 const REVOKE_MAP = join(HERE, 'wechat-revoke-map.py')
 const AUDIT = join(HERE, 'wechat-audit.py')
+const INCREMENTAL_CHECK = join(HERE, 'wechat-incremental-check.mjs')
+const DECRYPT_OUTPUT = join(HERE, 'wechat-decrypt-output.mjs')
+const RETENTION_CLEAN = join(HERE, 'wechat-retention-clean.mjs')
 const CONTACTS = join(HERE, 'wechat-contacts-export.py')
 const DECRYPT_IMAGE = join(HERE, 'wechat-decrypt-image.py')
 const PERSON_EXPORT = join(HERE, 'wechat-person-export.py')
@@ -52,11 +55,15 @@ function usage() {
 用法:
   node scripts/wechat42-export.mjs setup --account-root <账号目录> [--use-vendor]
   node scripts/wechat42-export.mjs [正常的 wechat-export 参数]
+  # 也支持 --incremental / --redact / --encrypt / --retention-days（见 wechat-export.mjs --help）
   node scripts/wechat42-export.mjs search --query <关键词> [--from D --to D]
   node scripts/wechat42-export.mjs status
   node scripts/wechat42-export.mjs doctor
   node scripts/wechat42-export.mjs check-updates
   node scripts/wechat42-export.mjs audit --output <导出目录> [--deep] [--json]
+  node scripts/wechat42-export.mjs check-incremental --output <导出目录> [--json]
+  node scripts/wechat42-export.mjs decrypt-output --input <包.wxenc> --output <目录> [--force]
+  node scripts/wechat42-export.mjs retention-clean --output <导出根目录> [--yes]
   node scripts/wechat42-export.mjs contacts --output <导出目录> [--no-avatars] [--json]
   node scripts/wechat42-export.mjs decrypt-image <文件> --output <路径> [--aes 16位] [--xor N]
   node scripts/wechat42-export.mjs person --sender <名称/wxid> --output <目录> [--from D --to D] [--incremental]
@@ -511,6 +518,8 @@ function runExport(values, args) {
     fail('baseDir 位于微信账号目录内（只读约束）；用 setup --base-dir 改到别处', 2)
   }
   const dryRun = args.includes('--dry-run')
+  const incrementalMode = args.some((arg) => arg === '--incremental' || String(arg).startsWith('--incremental='))
+  const encryptedMode = args.some((arg) => String(arg) === '--encrypt' || String(arg).startsWith('--encrypt=') || String(arg) === '--remove-plaintext' || String(arg).startsWith('--remove-plaintext='))
   const nativeDefault = !values.legacyWeflow
   if (values.refresh) {
     runSetup({ ...values, toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
@@ -532,6 +541,9 @@ function runExport(values, args) {
   const realHome = process.env.USERPROFILE || homedir()
   const hasOutput = args.includes('--output') || args.includes('-o')
     || args.some((arg) => String(arg).startsWith('--output='))
+  if (incrementalMode && !hasOutput) {
+    fail('--incremental 需要固定 --output，才能保存并读取增量状态', 2)
+  }
   const output = join(realHome, '.wechat-export', `${nowStamp()}-wechat42`)
   const forward = [...args]
   if (values.fetchArticles) forward.push('--fetch-articles')
@@ -619,9 +631,19 @@ function runExport(values, args) {
   if (revokeMapPath) rmSync(revokeMapPath, { force: true })
 
   if ((res.status ?? 0) === 0 || res.status === 5) {
-    if (!values.noAudit) {
+    if (encryptedMode) {
+      console.error('加密模式：跳过明文完整性/增量校验（明文目录可能已删除）')
+    } else if (!values.noAudit) {
       const outputArg = outputDirFromArgs(forward) || output
-      if (existsSync(config.workDir)) {
+      if (incrementalMode) {
+        console.error('增量校验（state → messages.jsonl → media）...')
+        const check = run(process.execPath, [INCREMENTAL_CHECK, '--output', outputArg], {
+          capture: true,
+        })
+        if (check.stdout) process.stderr.write(check.stdout)
+        if (check.stderr) process.stderr.write(check.stderr)
+        if (check.status !== 0) process.exit(check.status ?? 5)
+      } else if (existsSync(config.workDir)) {
         console.error('完整性校验（数据库 → 原始 JSON → 导出 JSONL）...')
         // Capture stdout so `--json` exports keep a clean machine-readable
         // stdout; the audit summary goes to stderr instead.
@@ -665,6 +687,18 @@ function runAudit(args) {
     fail(`未知的 audit 参数: ${token}`)
   }
   if (!output) fail('audit 需要 --output <导出目录>')
+  try {
+    const top = JSON.parse(readFileSync(join(resolve(output), 'manifest.json'), 'utf8'))
+    if (top?.incremental === true) {
+      console.error('检测到增量导出；改用 check-incremental 校验 state/计数/媒体')
+      const checkArgs = [INCREMENTAL_CHECK, '--output', resolve(output)]
+      if (json) checkArgs.push('--json')
+      const checked = run(process.execPath, checkArgs)
+      process.exit(checked.status ?? 0)
+    }
+  } catch {
+    // Fall through to the normal audit error path.
+  }
   if (!workDir || !existsSync(workDir)) {
     fail('明文 work/ 不存在；先运行 setup（或一次普通导出会重建）', 3)
   }
@@ -992,6 +1026,9 @@ function main() {
   if (command === 'doctor') { runDoctor(); return }
   if (command === 'check-updates') { runCheckUpdates(); return }
   if (command === 'audit') { runAudit(argv.slice(1)); return }
+  if (command === 'check-incremental') { run(process.execPath, [INCREMENTAL_CHECK, ...argv.slice(1)]); return }
+  if (command === 'decrypt-output') { run(process.execPath, [DECRYPT_OUTPUT, ...argv.slice(1)]); return }
+  if (command === 'retention-clean') { run(process.execPath, [RETENTION_CLEAN, ...argv.slice(1)]); return }
   if (command === 'contacts') { runContacts(argv.slice(1)); return }
   if (command === 'decrypt-image') { runDecryptImage(argv.slice(1)); return }
   if (command === 'person' || command === 'timeline') {

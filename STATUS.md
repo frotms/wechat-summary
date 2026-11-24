@@ -1,8 +1,8 @@
 # 当前状态与待办
 
-> 版本：1.11.0（2026-11-23）  
-> 分支：仅 `main`（feat 已于 2026-11-20 收口并删除；旧 main 见 tag `archive-main-python-4.1-2026-11-18`）  
-> 验证环境：Windows 10 + 微信桌面版 4.2.0.13  
+> 版本：1.13.0（2026-11-24）
+> 分支：仅 `main`（feat 已于 2026-11-20 收口并删除；旧 main 见 tag `archive-main-python-4.1-2026-11-18`）
+> 验证环境：Windows 10 + 微信桌面版 4.2.0.13
 > 详细设计见 `DESIGN.md`；按优先级排列的待办见 `TODO.md`；已记录但暂不实现的需求见 `BACKLOG.md`。
 
 ## 一、当前功能
@@ -34,13 +34,18 @@
 | 公众号正文 | ✅ 可选 | `--fetch-articles`，仅 `mp.weixin.qq.com`，默认关闭；真实 canary 已抓到 Qwen4 正文 |
 | 表情 CDN | ✅ 可选 | `--download-stickers`，Tencent 白名单，默认关闭；合成测试通过 |
 | 跨会话/时间线 | ✅ | `person --sender`、`timeline`；`--incremental` 基于 `state.json` |
+| 按会话增量 | ✅ | `--target/--group/--person --incremental` 追加新消息；媒体 sha256 去重；`check-incremental` 复验 |
+| 小程序 | ✅ | appid/pagepath/username/icon 等进入 `miniprogram`；HTML/Markdown 卡片 |
+| 合并转发内层媒体 | ✅ 本机缓存 | 图片/视频/文件优先本机定位；拿不到标记 `forward-media-not-local` |
+| V2 图片 / WXGF | ✅ | V2 图片解密；WXGF/H.265 转 JPEG；真实 V2 图片 canary 通过 |
+| 脱敏/加密/保留期 | ✅ | `--redact basic|strict`、`--encrypt`、`--retention-days`；`decrypt-output` / `retention-clean` |
 | 图片单文件解密 | ✅ | `decrypt-image`；V2 + XOR 合成测试 |
 | 输出 schema | ✅ | `mediaStatus`/`missingReason`；`docs/OUTPUT_SCHEMA.md` |
 | Skill 安装 | ✅ | `~/.claude/skills/wechat-export` junction；当前会话已识别；安装路径 `--check` 通过 |
 | 4.1 后端 | ⏸ 暂缓 | 代码保留，但暂不维护/未真机验证；旧实现归档在 tag `archive-main-python-4.1-2026-11-18` |
 | 脱离 `weflow-cli` | ✅ 4.2 原生 | 4.2 默认 `native-backend.py` + `native-weflow.mjs`；4.1 代码保留但不维护；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
-| 测试 | ✅ | 63 项 Node + 59 项 Python |
+| 测试 | ✅ | 81 项 Node + 61 项 Python |
 
 ### 本机验证基线（微信 4.2.0.13）
 
@@ -65,6 +70,8 @@
 - 2026-11-23：公众号正文 canary：官方群 link/text 消息抓取到 Qwen4 正文，写入 `media/articles/*.txt/.html`；HTML 正文卡与本地 html 路径验证通过
 - 2026-11-23：`decrypt-image` 真实 canary：从 account 派生 key，输出 PNG 39839 bytes
 - 2026-11-23：person/timeline canary：person 38 条（50 会话）；timeline 200 条；`--incremental` 保留已有行并只追加新消息
+- 2026-11-24：按会话增量 canary：国数SE9供货沟通 首次 4 条，第二次新增 35、重复 4、总计 39；`check-incremental` 0 失败
+- 2026-11-24：真实 V2 图片 canary：`631878c3...dat` → PNG 11451 bytes；本机 1370 个视频无 V2，176592 个图片缓存无 WXGF 样本
 
 ## 二、已知限制
 
@@ -73,16 +80,16 @@
 3. **`weflow-cli` 依赖**：4.2 默认走原生后端，不再需要 `weflow-cli`；只有 `--legacy-weflow` 回退时才用。4.1 代码保留但暂不维护。
 3. **实时库一致性**：普通计数 `audit` 在导出后重新查库，时间范围含今天时可能误报；`audit --deep` 优先用 `coverage.boundary` 钉住导出时刻，旧导出退回兜底边界并标 `reliable: false`。
 4. **4.1 暂缓**：用户 2026-11-20 确认先不管 4.1；相关代码、合成测试保留，但不维护/不验收。旧实现见 tag `archive-main-python-4.1-2026-11-18`。
-5. **V2/HEVC 图片**：V2 视频有合成测试；图片侧依赖 weflow-cli，未专门验证。
-6. **真实 V2 视频**：本机 1331 个视频全是普通 MP4，V2 只有合成测试。
-7. **非文本消息结构化**：小程序、视频号、部分应用消息仍未展开；转账/红包/位置/名片已结构化（领取/退款等状态字段未解析）。
+5. **V2/HEVC 图片**：V2 图片解密已用真实样本验证；WXGF/H.265 走 vendor `prepare_wxam`，本机 176592 个图片缓存无 WXGF 样本，未做真实 canary。
+6. **真实 V2 视频**：本机 1370 个视频全是普通 MP4，V2 只有合成测试。
+7. **非文本消息结构化**：小程序已展开 title/des/appid/pagepath/username/icon；视频号、部分应用消息仍未展开；转账/红包/位置/名片已结构化（领取/退款等状态字段未解析）。
 8. **公众号**：本机无 `gh_` 会话，`--all-official` 只有假 CLI 测试。
 9. **大会话性能**：native 在 types 含 image/file 时跳过 media-map；video/voice/emoji-only 或 `--with-media-map` 仍会扫描。
 10. **跨平台**：只在 Windows 10/11 + 微信 4.x 验证；macOS/Linux、微信 3.x 未验证。
-11. **输出安全**：导出物、`audit.json`、`revokes.json` 均为明文，无脱敏/匿名化/保留期策略。
+11. **输出安全**：默认仍是明文目录；`--redact` 做基础脱敏、`--encrypt` 生成 AES-256-GCM 加密包、`--retention-days` 写保留期。加密密码只从 `WECHAT_EXPORT_PASSWORD` 读取。
 12. **依赖安装**：已提供 `requirements.txt`；仍需用户自己创建 venv 并安装（当前不做一键安装器/安装向导）。
 13. **联网能力**：`--fetch-articles` 只支持 `mp.weixin.qq.com`，`--download-stickers` 只支持 Tencent 白名单；默认关闭，不绕过登录/风控。
-14. **增量范围**：`--incremental` 目前用于 `person`/`timeline` 聚合视图；按会话导出仍每次生成新目录，媒体去重/断点续传未实现。
+14. **增量范围**：`--incremental` 已覆盖普通按会话导出和 `person`/`timeline`；增量导出要求固定 `--output`，删除/移动旧导出目录后需要重新全量导出。
 15. **表情 CDN**：只有合成测试，尚未用真实“本机缺失表情”做 canary。
 
 ## 三、待办（按优先级）
@@ -95,9 +102,9 @@
 
 ### P1：覆盖范围
 
-- [ ] V2/HEVC 图片验证与解码补齐。
+- [x] V2 图片解密（真实 canary）；WXGF/H.265 转码已接入，本机无真实 WXGF 样本。
 - [ ] 真实 V2 视频 canary。
-- [x] 红包/转账/位置/名片结构化（金额/标题/经纬度/wxid）；小程序等更深字段待补。
+- [x] 红包/转账/位置/名片结构化（金额/标题/经纬度/wxid）；小程序 appid/pagepath/username/icon 已补。
 - [ ] 真实 `gh_` 公众号 canary。
 
 ### P2：工程化
@@ -110,7 +117,7 @@
 - [ ] 推送并跑 GitHub Actions。
 - [ ] 依赖清单与一键安装；4.1 版 `doctor` 暂缓。
 - [ ] 跨平台验证（macOS/Linux、微信 3.x）。
-- [ ] 导出物加密/脱敏/保留期选项。
+- [x] 导出物脱敏/加密/保留期：`--redact`、`--encrypt`、`--retention-days`；`decrypt-output`/`retention-clean`。
 - [x] 更新 `SKILL.md` frontmatter description，覆盖语音、表情、撤回、引用、合并转发、完整性校验。
 
 ### 已记录、暂不实现（见 `BACKLOG.md`）
@@ -124,8 +131,8 @@
 ## 四、如何自检
 
 ```bash
-npm test                  # 59 项 Node 测试
-npm run test:py           # 59 项 Python 测试
+npm test                  # 81 项 Node 测试
+npm run test:py           # 61 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs audit --output "<导出目录>" --deep

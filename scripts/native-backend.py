@@ -48,9 +48,15 @@ from lib.sticker import (  # noqa: E402
 )
 
 try:
-    from vendor.wechat42.media import prepare_images  # noqa: E402
+    from vendor.wechat42.media import (  # noqa: E402
+        prepare_images,
+        prepare_wxam,
+        resolve_ffmpeg,
+    )
 except Exception:  # pragma: no cover
     prepare_images = None
+    prepare_wxam = None
+    resolve_ffmpeg = None
 
 
 def ensure_utf8():
@@ -146,9 +152,46 @@ def message_type(item):
     return kind if kind else "text"
 
 
-def to_weflow(item):
+def record_media_path(store, record, files):
+    """Resolve media embedded in a forwarded chat record to a local file."""
+    kind = record.get("kind")
+    if kind == "image":
+        md5 = str(record.get("md5") or "").lower()
+        if md5:
+            stem = store.hardlink_stem(md5, "image") or md5
+            return store._find_image(stem) or store._find_image(md5) or ""  # noqa: SLF001
+    elif kind == "video":
+        md5 = str(record.get("md5") or "").lower()
+        if md5:
+            index = store.video_index()
+            return index.get(md5) or index.get(md5.replace("_raw", "")) or ""
+    elif kind == "file":
+        title = str(record.get("title") or record.get("text") or "").strip()
+        if title:
+            return files.get(os.path.basename(title).lower(), "")
+    return ""
+
+
+def annotate_record_media(store, records, files):
+    for record in records or []:
+        if record.get("kind") not in ("image", "video", "file"):
+            continue
+        path = record_media_path(store, record, files)
+        if path:
+            record["media"] = path
+            record["mediaStatus"] = "exported"
+        else:
+            record["mediaStatus"] = "missing"
+            record["missingReason"] = "forward-media-not-local"
+    return records
+
+
+def to_weflow(item, store=None, files=None):
     parsed = item.get("content") or {}
     raw = item.get("raw_content") or ""
+    records = parsed.get("records") or []
+    if store is not None and records:
+        records = annotate_record_media(store, records, files or {})
     return {
         "localId": item.get("local_id"),
         "serverId": item.get("server_id") or "",
@@ -167,7 +210,7 @@ def to_weflow(item):
         "appDescription": parsed.get("des") or "",
         "quote": parsed.get("quote") or None,
         "reply": parsed.get("reply") or "",
-        "records": parsed.get("records") or [],
+        "records": records,
         "isNote": bool(parsed.get("is_note")),
         "amount": parsed.get("amount") or "",
         "lat": parsed.get("lat") or "",
@@ -182,14 +225,22 @@ def prepare_target_images(store, work: Path, account: Path, msgs):
         return
     md5s = set()
     for item in msgs:
-        if item.get("kind") != "image":
-            continue
-        md5 = str(item.get("image_md5") or "").lower()
-        if md5:
-            md5s.add(md5)
-            stem = store.hardlink_stem(md5, "image")
-            if stem:
-                md5s.add(stem.lower())
+        if item.get("kind") == "image":
+            md5 = str(item.get("image_md5") or "").lower()
+            if md5:
+                md5s.add(md5)
+                stem = store.hardlink_stem(md5, "image")
+                if stem:
+                    md5s.add(stem.lower())
+        for record in (item.get("content") or {}).get("records") or []:
+            if record.get("kind") != "image":
+                continue
+            md5 = str(record.get("md5") or "").lower()
+            if md5:
+                md5s.add(md5)
+                stem = store.hardlink_stem(md5, "image")
+                if stem:
+                    md5s.add(stem.lower())
     if not md5s:
         return
     attach = account / "msg" / "attach"
@@ -199,6 +250,16 @@ def prepare_target_images(store, work: Path, account: Path, msgs):
         wxid = store.self_info().get("wxid") or clean_account_id(account.name)
         prepare_images(str(attach), str(work / "_images"), wxid, find_codes(),
                        only_md5s=md5s)
+        # `prepare_images` writes WXGF/H.265 payloads as .hevc. Convert them to
+        # JPEG so the normal image index can find and copy them.
+        if prepare_wxam:
+            ffmpeg = resolve_ffmpeg() if resolve_ffmpeg else "ffmpeg"
+            if ffmpeg:
+                prepare_wxam(str(work / "_images"), only_md5s=md5s,
+                             ffmpeg=ffmpeg)
+            else:
+                print("! [NATIVE_WXGF_DECODE_FAILED] 未找到 ffmpeg；WXGF/HEVC 图片将保留原始容器",
+                      file=sys.stderr)
         store._image_index = None
     except Exception as exc:  # noqa: BLE001
         print(f"! [NATIVE_IMAGE_DECRYPT_FAILED] {exc}；图片将标记缺失", file=sys.stderr)
@@ -623,7 +684,8 @@ def cmd_export(args):
         prepare_target_voices(store, work, args.talker, msgs)
         prepare_target_images(store, work, account, msgs)
         msgs = store.messages(args.talker, since=since, until=until, limit=limit)
-    rows = [to_weflow(item) for item in msgs]
+    files = file_index(work, account)
+    rows = [to_weflow(item, store=store, files=files) for item in msgs]
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     path = output / f"{args.talker}_messages.json"

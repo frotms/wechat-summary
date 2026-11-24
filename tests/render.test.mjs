@@ -120,3 +120,53 @@ test('special messages render structured cards and links', () => {
   assert.match(md, /\[📍 人民广场\]\(https:\/\/uri\.amap\.com/)
   assert.match(md, /名片账号：`wxid_card`/)
 })
+
+test('HTML and Markdown render mini-program cards', () => {
+  const record = fixtureRecord({
+    type: 'miniprogram',
+    typeLabel: '小程序',
+    text: '[小程序] 示例小程序',
+    quote: undefined,
+    records: [],
+    miniprogram: {
+      title: '示例小程序',
+      description: '小程序描述',
+      appName: '示例应用',
+      appId: 'wx123456',
+      pagePath: 'pages/index?id=1',
+      username: 'gh_example',
+      iconUrl: 'https://example.com/icon.png',
+      url: 'https://mp.weixin.qq.com/s/example',
+      appType: '33',
+    },
+  })
+  const html = renderHtml({ target, records: [record], manifest })
+  assert.match(html, /🧩 示例小程序/)
+  assert.match(html, /示例应用 · wx123456 · pages\/index\?id=1/)
+  assert.match(html, /https:\/\/mp\.weixin\.qq\.com\/s\/example/)
+  const md = renderMarkdown({ target, records: [record], manifest })
+  assert.match(md, /🧩 \*\*示例小程序\*\*/)
+  assert.match(md, /示例应用 · wx123456/)
+})
+
+test('HTML and Markdown render forwarded inner media', () => {
+  const record = fixtureRecord({
+    type: 'history',
+    typeLabel: '聊天记录',
+    quote: undefined,
+    records: [
+      { kind: 'image', sender: '张三', time: '10:00', text: '[图片]', media: 'media/images/fwd.jpg', mediaStatus: 'exported' },
+      { kind: 'file', sender: '张三', time: '10:01', text: '[文件] 报告.pdf', title: '报告.pdf', media: 'media/files/报告.pdf', mediaStatus: 'exported' },
+      { kind: 'video', sender: '张三', time: '10:02', text: '[视频]', mediaStatus: 'missing', missingReason: 'forward-media-not-local' },
+    ],
+  })
+  const html = renderHtml({ target, records: [record], manifest })
+  assert.match(html, /class="forward-image"/)
+  assert.match(html, /media\/images\/fwd\.jpg/)
+  assert.match(html, /报告\.pdf/)
+  assert.match(html, /\[视频未导出\]/)
+  const md = renderMarkdown({ target, records: [record], manifest })
+  assert.match(md, /!\[转发图片\]/)
+  assert.match(md, /📄 报告\.pdf/)
+  assert.match(md, /\[视频未导出\]/)
+})

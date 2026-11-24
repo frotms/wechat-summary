@@ -1,11 +1,11 @@
 # TODO（当前待办）
 
-> 更新：2026-11-23 · 版本 1.11.0  
-> 只列**尚未完成/尚未验证**的 skill 工作；`BACKLOG.md` 里的收藏、朋友圈、公众号正文、语音转写等已记录项不重复。  
-> 定位：Claude Code Skill，**不做 GUI / 管理后台 / 工程化界面**；导出 HTML 只是浏览产物。  
+> 更新：2026-11-24 · 版本 1.13.0
+> 只列**尚未完成/尚未验证**的 skill 工作；`BACKLOG.md` 里的收藏、朋友圈、公众号正文、语音转写等已记录项不重复。
+> 定位：Claude Code Skill，**不做 GUI / 管理后台 / 工程化界面**；导出 HTML 只是浏览产物。
 > **2026-11-20**：用户确认先不管微信 4.1；4.1 条目统一标为「暂缓」，不阻塞当前收口。
 
-## 分支收敛（P0，进行中）
+## 分支收敛（已完成；仅剩 4.1 暂缓项）
 
 > 目标：以 feat 为唯一主干吸收 main 能力，最终只保留一个 `main` 分支、一个入口、一套产物。完整计划与验收见 `docs/MERGE_PLAN.md`。
 
@@ -40,27 +40,28 @@
 - [x] **文本型导出跳过媒体/表情映射**：`--types` 不含 image/file/video/voice/emoji 时，不生成 media-map/sticker-map，也不扫 sticker seed。
 - [x] **减少全媒体导出的重复映射**：types 含 image/file 时 native `--media` 已处理图片/文件/视频/封面/语音/表情，跳过 media-map；`--with-media-map` 可强制。
 - [x] **4.2 离线 key 缓存**：`setup` 保存 `<baseDir>/keys.json`；后续优先缓存，缓存失效自动回退；`clean` 默认保留，`--purge-keys` 删除。
-- [ ] **4.2 native 缺口**：V2 视频在无 image/file 类型且禁用 media-map 时仍可能只复制原始字节；普通 WXGF HEVC、合并转发内层媒体未覆盖。公众号正文已由 `--fetch-articles` 覆盖。
+- [x] **4.2 native 缺口**：video-only 导出也走 `--media`，V2 视频可解码；WXGF/H.265 走 `prepare_wxam` 转 JPEG；合并转发内层媒体本机缓存优先。
 - [x] **CI 补 `sqlcipher3-wheels`**：已加入 Python CI 依赖，4.1 native 测试不再 skip。
-- [ ] **补端到端测试**：4.1 wrapper、native-only setup、`--legacy-weflow` 回退、4.1 audit；当前多为手工验证。
+- [x] **补端到端测试**：新增 native-only setup、key 缓存复用/失效回退、video-only inline media、加密/解密、保留期测试；4.1 真机项仍暂缓。
 - [x] **Skill 安装/触发验证**：已 junction 到 `~/.claude/skills/wechat-export`；当前会话已识别 `wechat-export`，安装路径下 `--check` 通过（key 缓存）。
 - [x] **错误提示结构化**：4.1 解密已输出 `SQLCIPHER_MISSING`/`CONFIG_INVALID`/`CONFIG_KEY_MISSING`/`WORK_DIR_INSIDE_ACCOUNT` + hint；native 图片/语音/seed/file-index 警告带 code。
 
 ## P2：能力补全（非 UI）
 
 - [ ]（暂缓）4.1 真机 canary（图片/表情/语音/撤回/audit）
-- [ ] 真实 V2 视频、普通 WXGF HEVC 解码
+- [x] V2 图片真实 canary；WXGF/H.265 转码接入（本机 176592 个图片缓存无 WXGF 样本，未做真实 canary）
+- [ ] 真实 V2 视频 canary（本机 1370 个视频无 V2 样本）
 - [x] 公众号正文（`--fetch-articles`）
-- [ ] 合并转发内层媒体（CDN）
+- [x] 合并转发内层媒体（本机缓存优先；CDN 不抓，缺失标记 `forward-media-not-local`）
 - [x] 红包/转账/位置/名片结构化（金额/标题/经纬度/wxid）
-- [ ] 小程序等特殊消息更深字段
+- [x] 小程序 appid/pagepath/username/icon 等字段；其他应用消息仍待补
 - [x] 联系人/群成员/头像导出（`contacts`）
 - [x] 跨会话按人导出、全局时间线（`person`/`timeline`）
 - [x] 全局搜索（已有 `search` 跨会话扫描）
-- [ ] 按会话导出的完整增量/媒体去重（当前 `--incremental` 仅 person/timeline）
-- [ ] 导出加密/脱敏/保留期
+- [x] 按会话导出的完整增量/媒体去重（`--incremental` + `state.json`/`incremental.json`；媒体 sha256 去重；`check-incremental` 复验）
+- [x] 导出脱敏（basic/strict）、AES-256-GCM 加密包、保留期元数据与 `retention-clean`
 - [x] `requirements.txt`（4.2 原生/语音/表情；4.1 的 sqlcipher3 以注释给出）
-- [ ] 跨平台验证（如未来需要；当前 Windows-only 是明确边界）
+- [ ] 跨平台验证（本机只有 Windows；macOS/Linux 需另找环境，当前仍是明确边界）
 
 ## 明确不做
 

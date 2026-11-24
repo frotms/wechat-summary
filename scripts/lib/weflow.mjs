@@ -324,6 +324,7 @@ export function exportJson(ctx, options) {
   if (options.dateArg) args.push('--date', options.dateArg)
   if (options.fromArg) args.push('--from', options.fromArg)
   if (options.toArg) args.push('--to', options.toArg)
+  if (options.media) args.push('--media')
 
   const res = runWeFlow(ctx, args, { timeoutMs: options.timeoutMs, allowNonZero: true })
   try {

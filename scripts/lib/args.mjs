@@ -6,8 +6,8 @@ const BOOLEAN = new Set([
   'allGroups', 'allPersons', 'allOfficial', 'includeEmpty',
   'allTime', 'media', 'fullImages', 'videoScan',
   'force', 'html', 'markdown', 'includeRaw',
-  'keepRaw', 'pruneRaw', 'dryRun', 'allowPartial',
-  'fetchArticles', 'downloadStickers',
+  'keepRaw', 'pruneRaw', 'dryRun', 'allowPartial', 'incremental',
+  'fetchArticles', 'downloadStickers', 'encrypt', 'removePlaintext',
 ])
 
 const MULTI = new Set(['target', 'group', 'person', 'videoRoot'])
@@ -15,7 +15,7 @@ const MULTI = new Set(['target', 'group', 'person', 'videoRoot'])
 const VALUES = new Set([
   'keyword', 'maxTargets', 'from', 'to', 'date', 'days', 'limit',
   'types', 'mediaStrategy', 'weflowConfig', 'output', 'mediaMap', 'revokeMap',
-  'maxHtmlMessages', 'weflow', 'timeoutMinutes', 'meLabel',
+  'maxHtmlMessages', 'weflow', 'timeoutMinutes', 'meLabel', 'redact', 'retentionDays', 'encryptOutput',
 ])
 
 const ALIASES = {

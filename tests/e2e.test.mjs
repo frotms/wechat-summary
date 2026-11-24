@@ -341,3 +341,105 @@ test('refuses an output directory inside the WeChat account', () => {
     ws.cleanup()
   }
 })
+
+test('video-only export requests inline native media', () => {
+  const ws = makeWorkspace()
+  try {
+    const res = run(ws, [
+      ...baseArgs(ws),
+      '--target', '项目群',
+      '--from', '2026-01-05', '--to', '2026-01-05',
+      '--types', 'video',
+    ])
+    assert.equal(res.status, 0, res.stderr)
+    assert.equal(res.json.totals.messages, 1)
+    const bundleDir = join(ws.outDir, res.json.bundles[0].dir)
+    const manifest = JSON.parse(readFileSync(join(bundleDir, 'manifest.json'), 'utf8'))
+    assert.equal(manifest.source.mediaExtraction.strategyUsed, 'inline-native')
+    assert.equal(manifest.stats.media.videos.found, 1)
+  } finally {
+    ws.cleanup()
+  }
+})
+
+test('encrypts output and decrypt-output restores it', () => {
+  const ws = makeWorkspace()
+  try {
+    const encFile = join(ws.root || dirname(ws.outDir), 'bundle.wxenc')
+    const res = spawnSync(process.execPath, [
+      mainScript,
+      '--weflow', fakeWeFlow,
+      '--weflow-config', ws.configPath,
+      '--video-root', ws.accountRoot,
+      '--output', ws.outDir,
+      '--json',
+      '--target', '项目群',
+      '--from', '2026-01-05', '--to', '2026-01-05',
+      '--types', 'text',
+      '--encrypt', '--encrypt-output', encFile, '--remove-plaintext',
+    ], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 120_000,
+      env: { ...process.env, FAKE_WEFLOW_FIXTURE: ws.fixturePath, WECHAT_EXPORT_PASSWORD: 'test-pass' },
+    })
+    assert.equal(res.status, 0, res.stderr)
+    assert.ok(existsSync(encFile))
+    assert.equal(existsSync(ws.outDir), false)
+
+    const restored = join(dirname(encFile), 'restored')
+    const dec = spawnSync(process.execPath, [
+      join(repoRoot, 'scripts', 'wechat-decrypt-output.mjs'),
+      '--input', encFile, '--output', restored, '--json',
+    ], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 120_000,
+      env: { ...process.env, WECHAT_EXPORT_PASSWORD: 'test-pass' },
+    })
+    assert.equal(dec.status, 0, dec.stderr)
+    assert.ok(existsSync(join(restored, 'manifest.json')))
+    const records = readJsonl(join(restored, readdirSync(restored).find((name) => name.includes('项目群')), 'messages.jsonl'))
+    assert.equal(records.length, 1)
+  } finally {
+    ws.cleanup()
+  }
+})
+
+test('--retention-days writes retention metadata', () => {
+  const ws = makeWorkspace()
+  try {
+    const res = run(ws, [
+      ...baseArgs(ws),
+      '--target', '项目群',
+      '--from', '2026-01-05', '--to', '2026-01-05',
+      '--types', 'text',
+      '--retention-days', '7',
+    ])
+    assert.equal(res.status, 0, res.stderr)
+    const manifest = JSON.parse(readFileSync(join(ws.outDir, 'manifest.json'), 'utf8'))
+    assert.equal(manifest.retention.days, 7)
+    assert.ok(Date.parse(manifest.retention.deleteAfter) > Date.now())
+  } finally {
+    ws.cleanup()
+  }
+})
+
+test('--redact writes redaction metadata', () => {
+  const ws = makeWorkspace()
+  try {
+    const res = run(ws, [
+      ...baseArgs(ws),
+      '--target', '项目群',
+      '--from', '2026-01-05', '--to', '2026-01-05',
+      '--types', 'text',
+      '--redact', 'strict',
+    ])
+    assert.equal(res.status, 0, res.stderr)
+    const bundle = res.json.bundles[0]
+    const manifest = JSON.parse(readFileSync(join(ws.outDir, bundle.dir, 'manifest.json'), 'utf8'))
+    assert.equal(manifest.redaction.mode, 'strict')
+  } finally {
+    ws.cleanup()
+  }
+})

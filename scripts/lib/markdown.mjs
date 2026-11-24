@@ -66,6 +66,14 @@ export function renderMarkdown({ target, records, manifest }) {
         const when = item.time ? `${item.time} ` : ''
         const text = mdEscapeText(item.text || '').replace(/\n/g, '\n> ')
         lines.push(`> ${who}${when}${text}`)
+        if (item.media) {
+          if (item.kind === 'image') lines.push(`> ![转发图片](${link(item.media)})`)
+          else if (item.kind === 'video') lines.push(`> [🎬 转发视频](${link(item.media)})`)
+          else if (item.kind === 'file') lines.push(`> [📄 ${mdEscapeText(item.title || '转发文件')}](${link(item.media)})`)
+        } else if (item.mediaStatus === 'missing') {
+          const label = { image: '图片', video: '视频', file: '文件', voice: '语音' }[item.kind] || item.kind || '媒体'
+          lines.push(`> [${label}未导出] 本机没有缓存`)
+        }
       }
     }
 
@@ -94,6 +102,12 @@ export function renderMarkdown({ target, records, manifest }) {
     if (record.link?.url) {
       lines.push('')
       lines.push(`[${record.link.title || record.link.url}](${record.link.url})`)
+    }
+    if (record.miniprogram) {
+      const mp = record.miniprogram
+      const meta = [mp.appName, mp.appId, mp.pagePath].filter(Boolean).join(' · ')
+      lines.push('')
+      lines.push(`🧩 **${mdEscapeText(mp.title || '小程序')}**${meta ? `（${mdEscapeText(meta)}）` : ''}`)
     }
     if (record.article?.path) {
       lines.push('')

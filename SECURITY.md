@@ -51,6 +51,13 @@
 - `clean` 使用普通文件删除，不是安全擦除；高敏感数据建议放在启用磁盘加密的卷上。
 - `audit.json`、`manifest.json`、`messages.jsonl`、`revokes.json` 都含真实消息/路径，按敏感数据处理。
 
+导出侧保护（均为显式选项，默认不改变明文行为）：
+
+- `--redact basic|strict`：写入前脱敏手机号/邮箱，strict 再加身份证/银行卡；不会自动识别姓名、地址或自由文本中的全部敏感信息。
+- `--encrypt`：整个导出目录打包为 AES-256-GCM `.wxenc`；密码只从 `WECHAT_EXPORT_PASSWORD` 读取。默认保留明文目录，`--remove-plaintext` 才会删除。
+- `--retention-days <n>`：在 `manifest.json` 写 `retention.deleteAfter`；`retention-clean --output <根目录>` 默认只列出到期目录，`--yes` 才删除。
+- 加密包解密用 `decrypt-output`；删除/加密都不是安全擦除，底层磁盘仍可能残留数据。
+
 ## 5. 日志与报告
 
 - 进度和错误只包含计数、标题、媒体状态；正文不写入 stderr。

@@ -8,6 +8,7 @@ import {
   messageText,
   linkFromMessage,
   normalizeLocalType,
+  parseMiniProgramMeta,
   resolveSender,
   parseVideoMeta,
 } from './parse.mjs'
@@ -22,8 +23,10 @@ import {
   pathExists,
   pathToPosix,
   safeName,
+  sha256File,
 } from './media.mjs'
 import { isPathInside } from './config.mjs'
+import { redactRecords } from './redact.mjs'
 import { localDateOf, toIso, toLocalDateTime } from './time.mjs'
 import { renderHtml } from './html.mjs'
 import { renderMarkdown } from './markdown.mjs'
@@ -48,7 +51,7 @@ function uniqueName(desired, used, fallback) {
   return `${stem}_${Date.now()}${ext}`
 }
 
-async function linkMediaFile({ source, subdir, desiredName, bundleDir, used, copy = false }) {
+async function linkMediaFile({ source, subdir, desiredName, bundleDir, used, copy = false, hashIndex }) {
   if (!source || !(await pathExists(source))) return null
   let stat
   try {
@@ -57,6 +60,21 @@ async function linkMediaFile({ source, subdir, desiredName, bundleDir, used, cop
     return null
   }
   if (!stat.isFile()) return null
+
+  let sha256 = ''
+  if (hashIndex) {
+    try {
+      sha256 = await sha256File(source)
+    } catch {
+      // Hashing is best effort; a read error will be handled by link/copy.
+    }
+  }
+  if (sha256 && hashIndex.has(sha256)) {
+    const rel = hashIndex.get(sha256)
+    if (rel && (await pathExists(join(bundleDir, rel)))) {
+      return { rel, bytes: stat.size, name: basename(rel), sha256, reused: true }
+    }
+  }
 
   const dir = join(bundleDir, 'media', subdir)
   await fs.mkdir(dir, { recursive: true })
@@ -82,7 +100,8 @@ async function linkMediaFile({ source, subdir, desiredName, bundleDir, used, cop
     await linkOrCopy(source, target)
   }
   const rel = pathToPosix(relative(bundleDir, target))
-  return { rel, bytes: stat.size, name }
+  if (sha256 && hashIndex) hashIndex.set(sha256, rel)
+  return { rel, bytes: stat.size, name, sha256 }
 }
 
 function missingReason(mediaState, kind) {
@@ -101,6 +120,7 @@ function normalizeForwardRecord(item) {
   for (const key of [
     'datatype', 'kind', 'sender', 'time', 'text', 'title', 'size',
     'md5', 'thumb_md5', 'image_md5', 'video_md5',
+    'mediaStatus', 'missingReason',
   ]) {
     if (item?.[key] !== undefined) out[key] = item[key]
   }
@@ -148,7 +168,40 @@ async function buildRecord(message, options) {
   if (message.reply) record.reply = message.reply
   if (Array.isArray(message.records) && message.records.length) {
     // Keep only stable fields; never leak absolute paths from the work tree.
-    record.records = message.records.map(normalizeForwardRecord)
+    // Inner media is resolved by native-backend when the source is cached
+    // locally; CDN-only items stay missing instead of being guessed.
+    const forwardRecords = []
+    for (const item of message.records) {
+      const normalized = normalizeForwardRecord(item)
+      const source = String(item.media || '')
+      if (source && await pathExists(source)) {
+        const kind = String(item.kind || '')
+        const subdir = kind === 'image' ? 'images' : kind === 'video' ? 'videos' : 'files'
+        const linked = await options.linkMedia(
+          source, subdir, basename(source), record.localId)
+        if (linked) {
+          normalized.media = linked.rel
+          normalized.mediaStatus = 'exported'
+          delete normalized.missingReason
+          options.mediaEntries.push({
+            kind: kind ? `forward-${kind}` : 'forward',
+            path: linked.rel,
+            messageId: record.id,
+            bytes: linked.bytes,
+            sha256: linked.sha256 || '',
+            name: linked.name,
+          })
+        } else {
+          normalized.mediaStatus = 'missing'
+          normalized.missingReason = 'forward-media-not-local'
+        }
+      } else if (['image', 'video', 'file'].includes(String(item.kind || ''))) {
+        normalized.mediaStatus = normalized.mediaStatus || 'missing'
+        normalized.missingReason = normalized.missingReason || 'forward-media-not-local'
+      }
+      forwardRecords.push(normalized)
+    }
+    record.records = forwardRecords
     if (message.isNote) record.isNote = true
   }
   if (classified.type === 'transfer' && message.amount) {
@@ -173,6 +226,20 @@ async function buildRecord(message, options) {
     record.contact = {
       username: message.cardUsername,
       title: message.appTitle || '',
+    }
+  }
+  if (classified.type === 'miniprogram') {
+    const mp = parseMiniProgramMeta(messageText(message)) || {}
+    record.miniprogram = {
+      title: message.appTitle || mp.title || record.text,
+      description: message.appDescription || mp.description || '',
+      appName: mp.appName || '',
+      appId: mp.appId || '',
+      pagePath: mp.pagePath || '',
+      username: mp.username || '',
+      iconUrl: mp.iconUrl || '',
+      url: message.appUrl || mp.url || '',
+      appType: mp.appType || '',
     }
   }
   if (includeRaw) record.rawContent = message.rawContent || message.content || ''
@@ -205,7 +272,7 @@ async function buildRecord(message, options) {
       if (linked) {
         record.media.image = linked.rel
         options.stats.media.images.found += 1
-        options.mediaEntries.push({ kind: 'image', path: linked.rel, messageId: record.id, bytes: linked.bytes })
+        options.mediaEntries.push({ kind: 'image', path: linked.rel, messageId: record.id, bytes: linked.bytes, sha256: linked.sha256 || '' })
       } else {
         addMissing(record, 'image', 'image-not-local')
         options.stats.media.images.missing += 1
@@ -228,7 +295,7 @@ async function buildRecord(message, options) {
         record.fileSize = linked.bytes
         record.text = `[文件] ${fileName}`
         options.stats.media.files.found += 1
-        options.mediaEntries.push({ kind: 'file', path: linked.rel, messageId: record.id, bytes: linked.bytes, name: fileName })
+        options.mediaEntries.push({ kind: 'file', path: linked.rel, messageId: record.id, bytes: linked.bytes, sha256: linked.sha256 || '', name: fileName })
       } else {
         addMissing(record, 'file', 'file-not-on-disk')
         options.stats.media.files.missing += 1
@@ -258,7 +325,7 @@ async function buildRecord(message, options) {
         record.videoMd5 = md5
         record.videoPlayLength = meta.playLength || undefined
         options.stats.media.videos.found += 1
-        options.mediaEntries.push({ kind: 'video', path: linked.rel, messageId: record.id, bytes: linked.bytes, name: linked.name })
+        options.mediaEntries.push({ kind: 'video', path: linked.rel, messageId: record.id, bytes: linked.bytes, sha256: linked.sha256 || '', name: linked.name })
         const verified = verifyVideoFile(hit.file)
         if (!verified.ok) {
           addMissing(record, 'video', verified.reason || 'unrecognized-video-magic')
@@ -292,7 +359,7 @@ async function buildRecord(message, options) {
       if (linked) {
         record.media.poster = linked.rel
         options.stats.media.posters.found += 1
-        options.mediaEntries.push({ kind: 'poster', path: linked.rel, messageId: record.id, bytes: linked.bytes })
+        options.mediaEntries.push({ kind: 'poster', path: linked.rel, messageId: record.id, bytes: linked.bytes, sha256: linked.sha256 || '' })
       }
     }
   } else if (classified.type === 'voice') {
@@ -307,7 +374,7 @@ async function buildRecord(message, options) {
       if (linked) {
         record.media.voice = linked.rel
         options.stats.media.voices.found += 1
-        options.mediaEntries.push({ kind: 'voice', path: linked.rel, messageId: record.id, bytes: linked.bytes })
+        options.mediaEntries.push({ kind: 'voice', path: linked.rel, messageId: record.id, bytes: linked.bytes, sha256: linked.sha256 || '' })
       } else {
         addMissing(record, 'voice', 'voice-not-local')
         options.stats.media.voices.missing += 1
@@ -332,7 +399,7 @@ async function buildRecord(message, options) {
         record.media.sticker = linked.rel
         if (mapped?.sticker_md5) record.stickerMd5 = mapped.sticker_md5
         options.stats.media.emojis.found += 1
-        options.mediaEntries.push({ kind: 'emoji', path: linked.rel, messageId: record.id, bytes: linked.bytes })
+        options.mediaEntries.push({ kind: 'emoji', path: linked.rel, messageId: record.id, bytes: linked.bytes, sha256: linked.sha256 || '' })
       } else {
         addMissing(record, 'emoji', 'sticker-not-local')
         options.stats.media.emojis.missing += 1
@@ -354,7 +421,7 @@ async function buildRecord(message, options) {
       const linked = await options.linkMedia(source, 'images', basename(source), record.localId)
       if (linked) {
         record.media.image = linked.rel
-        options.mediaEntries.push({ kind: 'image', path: linked.rel, messageId: record.id, bytes: linked.bytes })
+        options.mediaEntries.push({ kind: 'image', path: linked.rel, messageId: record.id, bytes: linked.bytes, sha256: linked.sha256 || '' })
       }
     }
   }
@@ -420,6 +487,33 @@ function summarize(records) {
   return stats
 }
 
+function mediaStats(records, fallback = {}) {
+  const media = {
+    images: { found: 0, missing: 0 },
+    files: { found: 0, missing: 0 },
+    videos: { found: 0, missing: 0, warned: Number(fallback.videos?.warned) || 0 },
+    voices: { found: 0, missing: 0 },
+    posters: { found: 0 },
+    emojis: { found: 0, missing: 0 },
+  }
+  for (const record of records) {
+    if (record.media?.image) media.images.found += 1
+    if (record.media?.file) media.files.found += 1
+    if (record.media?.video) media.videos.found += 1
+    if (record.media?.poster) media.posters.found += 1
+    if (record.media?.voice) media.voices.found += 1
+    if (record.media?.sticker) media.emojis.found += 1
+    for (const item of record.missing || []) {
+      if (item.kind === 'image') media.images.missing += 1
+      else if (item.kind === 'file') media.files.missing += 1
+      else if (item.kind === 'video') media.videos.missing += 1
+      else if (item.kind === 'voice') media.voices.missing += 1
+      else if (item.kind === 'emoji' || item.kind === 'sticker') media.emojis.missing += 1
+    }
+  }
+  return media
+}
+
 function buildReadme({ target, manifest }) {
   const stats = manifest.stats
   const lines = [
@@ -478,12 +572,28 @@ export async function buildTargetBundle(options) {
     meta,
   } = options
 
+  const existingRecords = Array.isArray(options.existingRecords) ? options.existingRecords : []
+  const existingMediaEntries = Array.isArray(options.existingMediaEntries)
+    ? options.existingMediaEntries
+    : []
+  const hashIndex = options.hashIndex instanceof Map ? options.hashIndex : null
+  const existingStats = options.existingStats && typeof options.existingStats === 'object'
+    ? options.existingStats
+    : null
+
   await fs.mkdir(join(bundleDir, 'media', 'images'), { recursive: true })
   await fs.mkdir(join(bundleDir, 'media', 'files'), { recursive: true })
   await fs.mkdir(join(bundleDir, 'media', 'videos'), { recursive: true })
 
   const usedNames = {
     images: new Set(), files: new Set(), videos: new Set(), voice: new Set(), stickers: new Set(),
+  }
+  for (const entry of existingMediaEntries) {
+    const rel = String(entry?.path || '')
+    const parts = rel.split('/')
+    if (parts.length >= 3 && parts[0] === 'media' && usedNames[parts[1]]) {
+      usedNames[parts[1]].add(parts[parts.length - 1])
+    }
   }
   const sourceCache = new Map()
   const mediaEntries = []
@@ -537,6 +647,7 @@ export async function buildTargetBundle(options) {
             bundleDir,
             used: usedNames[subdir] || usedNames.images,
             copy: subdir === 'videos',
+            hashIndex,
           }))
         }
         return sourceCache.get(cacheKey)
@@ -549,18 +660,67 @@ export async function buildTargetBundle(options) {
     records.push(record)
   }
 
-  records.sort((a, b) => {
+  const existingById = new Map()
+  for (const record of existingRecords) {
+    if (record?.id) existingById.set(record.id, record)
+  }
+  const fetchedIds = new Set()
+  let newRecordCount = 0
+  let duplicateRecordCount = 0
+  const freshRecords = []
+  for (const record of records) {
+    if (!record?.id || existingById.has(record.id) || fetchedIds.has(record.id)) {
+      duplicateRecordCount += 1
+      continue
+    }
+    fetchedIds.add(record.id)
+    freshRecords.push(record)
+    newRecordCount += 1
+  }
+  const mergedById = new Map(existingById)
+  for (const record of freshRecords) mergedById.set(record.id, record)
+  let mergedRecords = [...mergedById.values()]
+  const redactMode = String(options.redact || 'none').toLowerCase()
+  if (redactMode !== 'none') mergedRecords = redactRecords(mergedRecords, redactMode)
+
+  mergedRecords.sort((a, b) => {
     if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp
     return String(a.localId).localeCompare(String(b.localId), 'en', { numeric: true })
   })
-  records.forEach((record, index) => {
+  mergedRecords.forEach((record, index) => {
     record.seq = index + 1
   })
 
-  const computed = summarize(records)
-  computed.totalMessages = stats.totalMessages
-  computed.skippedByType = stats.skippedByType
-  computed.media = stats.media
+  const computed = summarize(mergedRecords)
+  computed.totalMessages = (Number(existingStats?.totalMessages) || 0) + stats.totalMessages
+  computed.skippedByType = (Number(existingStats?.skippedByType) || 0) + stats.skippedByType
+  computed.media = mediaStats(mergedRecords, stats.media)
+
+  const incrementalInfo = options.incremental
+    ? {
+      ...options.incremental,
+      previousRecords: existingRecords.length,
+      fetchedMessages: stats.totalMessages,
+      parsedRecords: records.length,
+      newRecords: newRecordCount,
+      duplicateRecords: duplicateRecordCount,
+      totalRecords: mergedRecords.length,
+    }
+    : null
+  if (incrementalInfo) computed.totalMessages = mergedRecords.length
+
+  const mediaByPath = new Map()
+  for (const entry of existingMediaEntries) {
+    if (entry?.path) mediaByPath.set(entry.path, entry)
+  }
+  for (const entry of mediaEntries) {
+    if (!entry?.path) continue
+    const previous = mediaByPath.get(entry.path)
+    mediaByPath.set(entry.path, previous
+      ? { ...previous, ...entry, sha256: entry.sha256 || previous.sha256 || '' }
+      : entry)
+  }
+  const allMediaEntries = [...mediaByPath.values()]
 
   const manifest = {
     schema: 'wechat-export-bundle/v1',
@@ -589,6 +749,8 @@ export async function buildTargetBundle(options) {
         : null,
     },
     stats: computed,
+    ...(redactMode !== 'none' ? { redaction: { mode: redactMode } } : {}),
+    ...(incrementalInfo ? { incremental: incrementalInfo } : {}),
     warnings: [...new Set(warnings || [])],
     files: {
       html: options.html ? 'index.html' : null,
@@ -600,7 +762,7 @@ export async function buildTargetBundle(options) {
     },
   }
 
-  const jsonl = records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : '')
+  const jsonl = mergedRecords.map((record) => JSON.stringify(record)).join('\n') + (mergedRecords.length ? '\n' : '')
   await fs.writeFile(join(bundleDir, 'messages.jsonl'), jsonl, 'utf8')
   await fs.writeFile(join(bundleDir, 'messages.json'), JSON.stringify({
     schema: 'wechat-export-messages/v1',
@@ -608,19 +770,19 @@ export async function buildTargetBundle(options) {
     target: manifest.target,
     query: manifest.query,
     stats: computed,
-    messages: records,
+    messages: mergedRecords,
   }, null, 2) + '\n', 'utf8')
   await fs.writeFile(join(bundleDir, 'media', 'index.json'), JSON.stringify({
     schema: 'wechat-export-media/v1',
     generatedAt: manifest.generatedAt,
-    items: mediaEntries,
+    items: allMediaEntries,
   }, null, 2) + '\n', 'utf8')
 
   // Revoke traces: batch entries point at an original message; single-revoke
   // rows without a local message are listed as orphans so their content is not
   // lost.
   if (options.revokeReport) {
-    const ids = new Set(records.map((record) => record.id))
+    const ids = new Set(mergedRecords.map((record) => record.id))
     const revokeItems = Object.entries(options.revokeReport.items || {})
       .filter(([, value]) => !value.target || value.target === target.id)
       .map(([id, value]) => ({ messageId: id, exported: ids.has(id), ...value }))
@@ -641,11 +803,11 @@ export async function buildTargetBundle(options) {
   await fs.writeFile(join(bundleDir, 'README.txt'), buildReadme({ target, manifest }), 'utf8')
 
   if (options.markdown) {
-    await fs.writeFile(join(bundleDir, 'transcript.md'), renderMarkdown({ target, records, manifest }), 'utf8')
+    await fs.writeFile(join(bundleDir, 'transcript.md'), renderMarkdown({ target, records: mergedRecords, manifest }), 'utf8')
   }
 
   if (options.html) {
-    const html = renderHtml({ target, records, manifest, htmlMaxMessages: options.maxHtmlMessages })
+    const html = renderHtml({ target, records: mergedRecords, manifest, htmlMaxMessages: options.maxHtmlMessages })
     if (html.skipped) {
       manifest.files.html = null
       manifest.warnings.push(html.reason)
@@ -656,5 +818,10 @@ export async function buildTargetBundle(options) {
   }
 
   await fs.writeFile(join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8')
-  return { manifest, records, mediaEntries }
+  return {
+    manifest,
+    records: mergedRecords,
+    mediaEntries: allMediaEntries,
+    incremental: incrementalInfo,
+  }
 }

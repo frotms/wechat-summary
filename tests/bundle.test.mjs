@@ -224,3 +224,87 @@ test('bundle carries quote and merged-forward records into JSONL', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('bundle links locally cached media inside merged-forward records', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wechat-bundle-forward-'))
+  try {
+    const bundleDir = join(root, 'bundle')
+    const rawDir = join(root, 'raw')
+    await mkdir(rawDir, { recursive: true })
+    const imagePath = join(root, 'forward-image.jpg')
+    await (await import('node:fs/promises')).writeFile(imagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+    const rawMessages = [{
+      localId: 1, serverId: 's1', createTime: 1767578400, isSend: 0,
+      senderUsername: 'wxid_lisi', sender: '李四',
+      messageType: 'chat_history', parsedContent: '[聊天记录] 2 条',
+      records: [
+        { kind: 'image', sender: '张三', time: '10:00', text: '[图片]', media: imagePath },
+        { kind: 'image', sender: '张三', time: '10:01', text: '[图片]', media: join(root, 'missing.jpg') },
+      ],
+    }]
+    await buildTargetBundle({
+      target: { id: '123@chatroom', name: '项目群', kind: 'group' },
+      rawMessages,
+      rawDir,
+      mediaManifest: null,
+      mediaMap: null,
+      revokeMap: null,
+      videoIndex: null,
+      contactMap: new Map([['wxid_lisi', '李四']]),
+      bundleDir,
+      types: new Set(['history']),
+      mediaState: null,
+      warnings: [],
+      meta: {},
+    })
+    const lines = (await readFile(join(bundleDir, 'messages.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line))
+    const records = lines[0].records
+    assert.equal(records[0].mediaStatus, 'exported')
+    assert.ok(records[0].media.startsWith('media/images/'))
+    assert.equal(records[1].mediaStatus, 'missing')
+    assert.equal(records[1].missingReason, 'forward-media-not-local')
+    const mediaIndex = JSON.parse(await readFile(join(bundleDir, 'media', 'index.json'), 'utf8'))
+    assert.ok(mediaIndex.items.some((item) => item.kind === 'forward-image'))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('bundle applies redaction before writing JSONL', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wechat-bundle-redact-'))
+  try {
+    const bundleDir = join(root, 'bundle')
+    const rawDir = join(root, 'raw')
+    await mkdir(rawDir, { recursive: true })
+    const rawMessages = [{
+      localId: 1, serverId: 's1', createTime: 1767578400, isSend: 0,
+      senderUsername: 'wxid_lisi', sender: '李四',
+      messageType: 'text', parsedContent: '电话 13800138000 邮箱 a@b.com',
+      content: '电话 13800138000 邮箱 a@b.com',
+    }]
+    const result = await buildTargetBundle({
+      target: { id: '123@chatroom', name: '项目群', kind: 'group' },
+      rawMessages,
+      rawDir,
+      mediaManifest: null,
+      mediaMap: null,
+      revokeMap: null,
+      videoIndex: null,
+      contactMap: new Map([['wxid_lisi', '李四']]),
+      bundleDir,
+      types: new Set(['text']),
+      mediaState: null,
+      warnings: [],
+      meta: {},
+      redact: 'basic',
+    })
+    const lines = (await readFile(join(bundleDir, 'messages.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line))
+    assert.match(lines[0].text, /\[手机号\]/)
+    assert.match(lines[0].text, /\[邮箱\]/)
+    assert.equal(result.manifest.redaction.mode, 'basic')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

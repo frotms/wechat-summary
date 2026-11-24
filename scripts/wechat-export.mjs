@@ -16,7 +16,7 @@ import { promises as fs } from 'node:fs'
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseArgv } from './lib/args.mjs'
 import { AppError, ExportError, PartialError, PrereqError, UsageError } from './lib/errors.mjs'
 import {
@@ -24,7 +24,9 @@ import {
   isWithinWindow,
   localDateOf,
   nowStamp,
+  parseDateOnly,
   resolveTimeWindow,
+  toEpochSeconds,
   toLocalDateTime,
 } from './lib/time.mjs'
 import {
@@ -55,6 +57,18 @@ import {
   parseVideoMd5Candidates,
 } from './lib/video.mjs'
 import { buildTargetBundle } from './lib/bundle.mjs'
+import { normalizeRedactMode } from './lib/redact.mjs'
+import { encryptDirectory } from './lib/crypto-bundle.mjs'
+import { retentionInfo } from './lib/retention.mjs'
+import {
+  checkIncrementalBundle,
+  loadMediaEntries,
+  loadRecords,
+  loadState,
+  stateFromRecords,
+  writeReport,
+  writeState,
+} from './lib/incremental.mjs'
 import { renderBatchIndex } from './lib/html.mjs'
 import {
   ensureDir,
@@ -63,15 +77,16 @@ import {
   readJson,
   rmQuiet,
   safeName,
+  sha256File,
   writeJson,
   writeText,
 } from './lib/media.mjs'
 
-const SKILL_VERSION = '1.11.0'
+const SKILL_VERSION = '1.13.0'
 
 const ALL_TYPES = [
   'text', 'image', 'file', 'video', 'voice', 'emoji',
-  'location', 'link', 'history', 'transfer', 'redpacket',
+  'location', 'link', 'miniprogram', 'history', 'transfer', 'redpacket',
   'card', 'call', 'system', 'quote', 'other',
 ]
 
@@ -84,6 +99,7 @@ const TYPE_ALIASES = {
   emoji: 'emoji', 表情: 'emoji',
   location: 'location', 位置: 'location',
   link: 'link', 链接: 'link',
+  miniprogram: 'miniprogram', mini: 'miniprogram', weapp: 'miniprogram', 小程序: 'miniprogram',
   history: 'history', chat_history: 'history', 聊天记录: 'history', 转发: 'history',
   transfer: 'transfer', 转账: 'transfer',
   redpacket: 'redpacket', red_packet: 'redpacket', 红包: 'redpacket',
@@ -97,7 +113,7 @@ const TYPE_ALIASES = {
 
 function parseTypes(value) {
   const text = String(
-    value ?? 'text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,call',
+    value ?? 'text,image,file,video,voice,emoji,link,miniprogram,history,quote,transfer,redpacket,location,card,call',
   ).trim()
   if (!text) throw new UsageError('--types 不能为空', { code: 'INVALID_TYPES' })
   const selected = new Set()
@@ -167,10 +183,11 @@ function printUsage() {
   --days <n>                  最近 n 个自然日（含今天）
   --all-time                  全部时间（不写时间参数时的默认）
   --limit <n>                 每个会话最多 n 条消息（0=全部）
+  --incremental               只追加新消息；需要固定 --output，按会话写 state.json/incremental.json
 
 类型:
-  --types <列表>              text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,...,all
-                              默认 text,image,file,video,voice,emoji,link,history,quote,transfer,redpacket,location,card,call
+  --types <列表>              text,image,file,video,voice,emoji,link,miniprogram,history,quote,transfer,redpacket,location,card,...,all
+                              默认 text,image,file,video,voice,emoji,link,miniprogram,history,quote,transfer,redpacket,location,card,call
 
 媒体:
   --media-strategy <策略>     auto | day | full | none（默认 auto）
@@ -193,6 +210,11 @@ function printUsage() {
 输出:
   --output <目录>             默认 ~/.wechat-export/<时间戳>
   --force                     输出目录非空时，先改名为 .bak-<时间戳>
+  --redact <none|basic|strict> 导出前脱敏：basic 手机号/邮箱；strict 再加身份证/银行卡
+  --encrypt                   导出后加密为 <output>.wxenc（密码读 WECHAT_EXPORT_PASSWORD）
+  --encrypt-output <文件>     指定加密包路径（默认 <output>.wxenc）
+  --remove-plaintext          加密成功后删除明文导出目录（谨慎）
+  --retention-days <n>        在 manifest 写入保留期（配合 clean --retention 清理）
   --no-html                   不生成 index.html
   --no-markdown               不生成 transcript.md
   --max-html-messages <n>     HTML 最多包含多少条（默认 50000；超过则跳过 HTML）
@@ -213,6 +235,7 @@ function printUsage() {
   node scripts/wechat-export.mjs --person "张三" --from 2026-01-01 --to 2026-01-31
   node scripts/wechat-export.mjs --all-groups --days 3 --types text,video
   node scripts/wechat-export.mjs --target "项目群" --types all --output "D:\\\\exports\\\\项目群"
+  node scripts/wechat-export.mjs --target "项目群" --incremental --output "D:\\\\exports\\\\项目群"
 `)
 }
 
@@ -668,15 +691,20 @@ async function resolveOutputDir(opts, wechatRoots, warnings) {
     }
     const entries = await fs.readdir(output).catch(() => [])
     if (entries.length) {
-      if (!opts.force) {
+      if (opts.incremental) {
+        // Incremental writes into the existing bundle directories; never move
+        // or delete the previous export just because it is non-empty.
+        warnings.push(`增量模式：复用已有输出目录 ${output}`)
+      } else if (!opts.force) {
         throw new UsageError(`输出目录非空: ${output}`, {
           code: 'OUTPUT_NOT_EMPTY',
           hints: ['换一个 --output，或加 --force（旧目录会改名为 .bak-<时间戳>）'],
         })
+      } else {
+        const backup = `${output}.bak-${nowStamp()}`
+        await fs.rename(output, backup)
+        warnings.push(`输出目录非空，旧目录已改名: ${backup}`)
       }
-      const backup = `${output}.bak-${nowStamp()}`
-      await fs.rename(output, backup)
-      warnings.push(`输出目录非空，旧目录已改名: ${backup}`)
     }
   }
 
@@ -912,7 +940,7 @@ function batchTotals(bundles) {
   return totals
 }
 
-async function writeBatchOutputs({ outputDir, time, types, bundles, failures, warnings, weflowVersion }) {
+async function writeBatchOutputs({ outputDir, time, types, bundles, failures, warnings, weflowVersion, incremental = false }) {
   const totals = batchTotals(bundles)
   const manifest = {
     schema: 'wechat-export-batch/v1',
@@ -929,6 +957,7 @@ async function writeBatchOutputs({ outputDir, time, types, bundles, failures, wa
       skillVersion: SKILL_VERSION,
       weflowVersion: weflowVersion || null,
     },
+    incremental: Boolean(incremental),
     totals,
     bundles: bundles.map((bundle) => ({
       target: bundle.target,
@@ -938,6 +967,7 @@ async function writeBatchOutputs({ outputDir, time, types, bundles, failures, wa
       markdown: bundle.markdown,
       manifest: `${bundle.dir}/manifest.json`,
       warnings: bundle.warnings,
+      ...(bundle.incremental ? { incremental: bundle.incremental } : {}),
     })),
     failures,
     warnings: [...new Set(warnings)],
@@ -991,6 +1021,76 @@ function printHumanSummary({ outputDir, manifest, warnings }) {
   }
 }
 
+
+async function readTopManifest(outputDir) {
+  try {
+    return await readJson(join(outputDir, 'manifest.json'))
+  } catch {
+    return null
+  }
+}
+
+async function findExistingBundle(outputDir, targetId) {
+  const manifest = await readTopManifest(outputDir)
+  const entries = Array.isArray(manifest?.bundles) ? manifest.bundles : []
+  for (const entry of entries) {
+    if (String(entry?.target?.id || '') !== String(targetId)) continue
+    const dir = join(outputDir, String(entry.dir || ''))
+    if (await pathExists(join(dir, 'messages.jsonl'))) return dir
+    if (await pathExists(dir)) return dir
+  }
+  // Fall back to scanning bundle directories when the top-level manifest is
+  // missing or predates the current target list.
+  let names = []
+  try {
+    names = await fs.readdir(outputDir)
+  } catch {
+    return null
+  }
+  for (const name of names) {
+    const dir = join(outputDir, name)
+    const bundleManifest = await readJson(join(dir, 'manifest.json')).catch(() => null)
+    if (String(bundleManifest?.target?.id || '') === String(targetId)) return dir
+  }
+  return null
+}
+
+function incrementalTimeWindow(time, state) {
+  const lastTimestamp = Number(state?.lastTimestamp) || 0
+  if (!lastTimestamp) return time
+  const stateDate = localDateOf(lastTimestamp)
+  const stateStart = toEpochSeconds(parseDateOnly(stateDate, false))
+  const fromTs = Math.max(stateStart, time.fromTs ?? stateStart)
+  const fromDate = localDateOf(fromTs)
+  return {
+    ...time,
+    kind: 'range',
+    dateArg: undefined,
+    fromArg: fromDate,
+    fromDate,
+    fromTs,
+    label: `${fromDate} ~ ${time.toDate || '现在'}（增量）`,
+  }
+}
+
+async function buildHashIndex(bundleDir, entries) {
+  const index = new Map()
+  for (const entry of entries || []) {
+    if (!entry?.path) continue
+    let hash = entry.sha256 || ''
+    if (!hash) {
+      try {
+        hash = await sha256File(join(bundleDir, entry.path))
+        entry.sha256 = hash
+      } catch {
+        continue
+      }
+    }
+    if (hash) index.set(hash, entry.path)
+  }
+  return index
+}
+
 async function runExport(opts) {
   const types = parseTypes(opts.types)
   const time = resolveTimeWindow(opts)
@@ -998,6 +1098,9 @@ async function runExport(opts) {
     || Boolean(opts.fetchArticles) || Boolean(opts.downloadStickers)
   const videoRequested = types.has('video')
   const warnings = []
+  if (opts.incremental && opts.limit) {
+    warnings.push('增量模式使用 --limit 可能漏掉尚未导出的消息；建议增量时不加 --limit')
+  }
 
   const ctx = resolveWeFlow(opts.weflow)
   const weflowVersion = getVersion(ctx)
@@ -1136,23 +1239,68 @@ async function runExport(opts) {
   const bundleSummaries = []
   const failures = []
   const usedDirs = new Set()
+  // Video-only (or voice/emoji-only) native exports still need `--media` so
+  // V2 videos are decoded; otherwise the bundle only sees encrypted bytes.
+  const inlineMedia = videoRequested && !mediaEnabled && !mediaMap
+    && opts.mediaStrategy !== 'none'
+  const existingManifest = opts.incremental ? await readTopManifest(outputDir) : null
+  const previousBundles = Array.isArray(existingManifest?.bundles)
+    ? existingManifest.bundles.filter((entry) => entry?.target?.id && entry?.dir)
+    : []
 
   for (let index = 0; index < targets.length; index += 1) {
     const target = targets[index]
-    const dirName = targetDirName(target, usedDirs)
-    const bundleDir = join(outputDir, dirName)
+    const plannedDirName = targetDirName(target, usedDirs)
+    let dirName = plannedDirName
+    let bundleDir = join(outputDir, dirName)
+    if (opts.incremental) {
+      const found = await findExistingBundle(outputDir, target.id)
+      if (found) {
+        bundleDir = found
+        dirName = pathToPosix(relative(outputDir, bundleDir))
+        usedDirs.add(dirName)
+      }
+    }
     const rawDir = join(bundleDir, 'raw')
     await ensureDir(rawDir)
     progress(opts, `[${index + 1}/${targets.length}] ${targetLabel(target)}`)
 
     try {
+      let targetTime = time
+      let existingRecords = []
+      let existingMediaEntries = []
+      let existingStats = null
+      let previousState = null
+      let hashIndex = null
+      if (opts.incremental) {
+        existingRecords = await loadRecords(bundleDir)
+        existingMediaEntries = await loadMediaEntries(bundleDir)
+        previousState = await loadState(bundleDir)
+        const previousManifest = await readJson(join(bundleDir, 'manifest.json')).catch(() => null)
+        existingStats = previousManifest?.stats || null
+        const previousTypes = previousManifest?.query?.types
+        if (Array.isArray(previousTypes)) {
+          const before = [...previousTypes].map(String).sort().join(',')
+          const now = [...types].map(String).sort().join(',')
+          if (before !== now) {
+            warnings.push(`${target.name || target.id}: 增量 --types 与上次不同；旧消息不会按新类型回填`)
+          }
+        }
+        if (!previousState && existingRecords.length) {
+          previousState = stateFromRecords(existingRecords, target)
+          warnings.push(`${target.name || target.id}: 缺少 state.json，已从 messages.jsonl 推导增量边界`)
+        }
+        hashIndex = await buildHashIndex(bundleDir, existingMediaEntries)
+        targetTime = incrementalTimeWindow(time, previousState)
+      }
       const jsonResult = exportJson(ctx, {
         talker: target.id,
         outputDir: rawDir,
-        dateArg: time.dateArg,
-        fromArg: time.fromArg,
-        toArg: time.toArg,
+        dateArg: targetTime.dateArg,
+        fromArg: targetTime.fromArg,
+        toArg: targetTime.toArg,
         limit: opts.limit,
+        media: inlineMedia,
         timeoutMs: opts.timeoutMinutes * 60_000,
       })
 
@@ -1178,7 +1326,7 @@ async function runExport(opts) {
       if (coverage?.mayHaveMore === true) {
         warnings.push(`${target.name || target.id}: 可能还有更多消息未返回（coverage.mayHaveMore=true）`)
       }
-      rawMessages = rawMessages.filter((message) => isWithinWindow(message.createTime, time))
+      rawMessages = rawMessages.filter((message) => isWithinWindow(message.createTime, targetTime))
 
       const mediaState = {
         requested: mediaEnabled,
@@ -1192,13 +1340,17 @@ async function runExport(opts) {
         error: null,
       }
 
-      if (mediaEnabled && pyReady) {
+      if (inlineMedia) {
+        mediaState.performed = true
+        mediaState.skipped = false
+        mediaState.strategyUsed = 'inline-native'
+      } else if (mediaEnabled && pyReady) {
         const media = await extractMediaForTarget({
           ctx,
           target,
           rawDir,
           rawMessages,
-          time,
+          time: targetTime,
           opts,
           warnings,
         })
@@ -1213,7 +1365,7 @@ async function runExport(opts) {
         mediaState.skipped = true
       }
 
-      const mediaManifest = mediaState.performed
+      const mediaManifest = mediaState.performed || inlineMedia
         ? await readMediaManifest(rawDir, target.id)
         : { records: {}, documents: {}, path: null }
 
@@ -1236,10 +1388,20 @@ async function runExport(opts) {
           weflowVersion,
           mediaStrategy: mediaState.strategyUsed || opts.mediaStrategy,
         },
-        queryLabel: time.label,
-        queryDate: time.dateArg,
-        queryFrom: time.fromArg,
-        queryTo: time.toArg,
+        existingRecords,
+        existingMediaEntries,
+        existingStats,
+        hashIndex,
+        redact: opts.redact || 'none',
+        incremental: opts.incremental ? {
+          enabled: true,
+          fromDate: targetTime.fromDate || '',
+          previousLastTimestamp: Number(previousState?.lastTimestamp) || 0,
+        } : null,
+        queryLabel: targetTime.label,
+        queryDate: targetTime.dateArg,
+        queryFrom: targetTime.fromArg,
+        queryTo: targetTime.toArg,
         limit: opts.limit,
         meLabel: opts.meLabel || '我',
         ownWxid: config.wxid || '',
@@ -1251,6 +1413,58 @@ async function runExport(opts) {
         videoRootsFound: Boolean(video.roots.length || video.index?.files?.length),
       })
       for (const warning of bundleWarnings) warnings.push(`${target.name || target.id}: ${warning}`)
+
+      let incrementalReport = null
+      if (opts.incremental) {
+        const info = bundle.incremental || {}
+        const records = bundle.records || []
+        const lastRecord = records.length ? records[records.length - 1] : null
+        const maxTimestamp = records.reduce(
+          (value, record) => Math.max(value, Number(record?.timestamp) || 0), 0)
+        const stateValue = {
+          target: {
+            id: target.id,
+            name: target.name || target.id,
+            kind: target.kind,
+          },
+          lastTimestamp: maxTimestamp,
+          lastMessageId: lastRecord?.id || '',
+          messageCount: records.length,
+        }
+        await writeState(bundleDir, stateValue)
+        incrementalReport = {
+          target: stateValue.target,
+          fromDate: targetTime.fromDate || '',
+          previousLastTimestamp: Number(previousState?.lastTimestamp) || 0,
+          previousMessages: Number(info.previousRecords) || 0,
+          fetchedMessages: Number(info.fetchedMessages) || 0,
+          parsedRecords: Number(info.parsedRecords) || 0,
+          newMessages: Number(info.newRecords) || 0,
+          duplicateMessages: Number(info.duplicateRecords) || 0,
+          totalMessages: Number(info.totalRecords) || records.length,
+          firstTimestamp: records.length ? records[0].timestamp : null,
+          lastTimestamp: maxTimestamp,
+          check: { ok: true },
+        }
+        await writeReport(bundleDir, incrementalReport)
+        const incrementalCheck = await checkIncrementalBundle(bundleDir)
+        if (!incrementalCheck.ok) {
+          if (previousState) await writeState(bundleDir, previousState)
+          else await fs.rm(join(bundleDir, 'state.json'), { force: true })
+          incrementalReport.check = { ok: false, problems: incrementalCheck.problems }
+          await writeReport(bundleDir, incrementalReport)
+          throw new ExportError(`增量校验失败：${incrementalCheck.problems.join('；')}`, {
+            code: 'INCREMENTAL_CHECK_FAILED',
+          })
+        }
+        incrementalReport.check = {
+          ok: true,
+          duplicateIds: incrementalCheck.checks.duplicateIds.length,
+          missingMedia: incrementalCheck.checks.missingMedia.length,
+          duplicateMedia: incrementalCheck.checks.duplicateMedia.length,
+        }
+        await writeReport(bundleDir, incrementalReport)
+      }
 
       if (opts.pruneRaw) await rmQuiet(rawDir)
 
@@ -1265,10 +1479,14 @@ async function runExport(opts) {
         html: Boolean(bundle.manifest.files.html),
         markdown: Boolean(bundle.manifest.files.markdown),
         warnings: bundle.manifest.warnings,
+        ...(incrementalReport ? { incremental: incrementalReport } : {}),
       })
       progress(
         opts,
         `    完成：${bundle.manifest.stats.exportedMessages} 条，`
+        + (incrementalReport
+          ? `新增 ${incrementalReport.newMessages} / 重复 ${incrementalReport.duplicateMessages}，`
+          : '')
         + `图片 ${bundle.manifest.stats.media.images.found}，`
         + `文件 ${bundle.manifest.stats.media.files.found}，`
         + `视频 ${bundle.manifest.stats.media.videos.found}`,
@@ -1286,15 +1504,57 @@ async function runExport(opts) {
     }
   }
 
+  let allBundles = bundleSummaries
+  if (opts.incremental && previousBundles.length) {
+    const byId = new Map(previousBundles.map((entry) => [String(entry.target.id), entry]))
+    for (const entry of bundleSummaries) byId.set(String(entry.target.id), entry)
+    allBundles = [...byId.values()]
+  }
   const manifest = await writeBatchOutputs({
     outputDir,
     time,
     types,
-    bundles: bundleSummaries,
+    bundles: allBundles,
     failures,
     warnings,
     weflowVersion,
+    incremental: Boolean(opts.incremental),
   })
+
+  if (opts.retentionDays) {
+    manifest.retention = retentionInfo(opts.retentionDays)
+    await writeJson(join(outputDir, 'manifest.json'), manifest)
+  }
+
+  let encrypted = null
+  if (opts.encrypt) {
+    const password = process.env.WECHAT_EXPORT_PASSWORD || ''
+    if (!password) {
+      throw new UsageError('--encrypt 需要设置环境变量 WECHAT_EXPORT_PASSWORD', {
+        code: 'ENCRYPT_PASSWORD_MISSING',
+      })
+    }
+    const encFile = opts.encryptOutput
+      ? resolve(expandHome(opts.encryptOutput))
+      : `${outputDir}.wxenc`
+    if (isPathInside(outputDir, encFile)) {
+      throw new UsageError('加密包不能放在被加密的输出目录内', { code: 'ENCRYPT_OUTPUT_INSIDE' })
+    }
+    const encryptedInfo = {
+      file: basename(encFile),
+      removedPlaintext: Boolean(opts.removePlaintext),
+    }
+    manifest.encrypted = encryptedInfo
+    await writeJson(join(outputDir, 'manifest.json'), manifest)
+    encrypted = await encryptDirectory(outputDir, encFile, password)
+    encrypted.removedPlaintext = Boolean(opts.removePlaintext)
+    if (opts.removePlaintext) {
+      await fs.rm(outputDir, { recursive: true, force: true })
+      warnings.push(`明文导出目录已删除；加密包: ${encFile}`)
+    } else {
+      warnings.push(`已生成加密包: ${encFile}（明文目录仍保留）`)
+    }
+  }
 
   if (opts.json) {
     jsonResult({
@@ -1307,6 +1567,7 @@ async function runExport(opts) {
       bundles: manifest.bundles,
       failures: manifest.failures,
       warnings: manifest.warnings,
+      ...(encrypted ? { encrypted } : {}),
     })
   } else {
     printHumanSummary({ outputDir, manifest, warnings })
@@ -1341,6 +1602,7 @@ async function main() {
       : numberOption(opts, 'maxTargets', undefined, 1, 500)
     opts.maxHtmlMessages = numberOption(opts, 'maxHtmlMessages', 50_000, 0, 1_000_000)
     opts.timeoutMinutes = numberOption(opts, 'timeoutMinutes', 30, 1, 240)
+    opts.retentionDays = numberOption(opts, 'retentionDays', undefined, 1, 3650)
     opts.mediaStrategy = String(opts.mediaStrategy || 'auto').toLowerCase()
     if (!['auto', 'day', 'full', 'none'].includes(opts.mediaStrategy)) {
       throw new UsageError('--media-strategy 只支持 auto | day | full | none', { code: 'INVALID_MEDIA_STRATEGY' })
@@ -1348,7 +1610,34 @@ async function main() {
     if (opts.keepRaw && opts.pruneRaw) {
       throw new UsageError('--keep-raw 与 --prune-raw 不能同时使用', { code: 'CONFLICTING_OPTIONS' })
     }
+    if (opts.incremental && !opts.output) {
+      throw new UsageError('--incremental 需要固定 --output，才能保存并读取增量状态', {
+        code: 'INCREMENTAL_NEEDS_OUTPUT',
+        hints: ['例如：--output "D:\\wechat-exports\\项目群" --incremental'],
+      })
+    }
+    if (opts.incremental && opts.force) {
+      throw new UsageError('--incremental 不能与 --force 同时使用', {
+        code: 'CONFLICTING_OPTIONS',
+        hints: ['增量模式会复用已有目录；需要重建请先换一个 --output'],
+      })
+    }
     if (opts.media === false && opts.mediaStrategy === 'auto') opts.mediaStrategy = 'none'
+    if (opts.redact !== undefined) {
+      const mode = normalizeRedactMode(opts.redact)
+      if (!mode) {
+        throw new UsageError('--redact 只支持 none | basic | strict', { code: 'INVALID_REDACT_MODE' })
+      }
+      opts.redact = mode
+    } else {
+      opts.redact = 'none'
+    }
+    if (opts.encryptOutput && !opts.encrypt) {
+      throw new UsageError('--encrypt-output 需要同时加 --encrypt', { code: 'CONFLICTING_OPTIONS' })
+    }
+    if (opts.removePlaintext && !opts.encrypt) {
+      throw new UsageError('--remove-plaintext 需要同时加 --encrypt', { code: 'CONFLICTING_OPTIONS' })
+    }
 
     if (opts.check) {
       await runCheck(opts)

@@ -1,6 +1,6 @@
 ---
 name: wechat-export
-description: 导出本机微信桌面客户端的聊天记录（文字、图片、传输文件、视频、语音、表情、撤回、引用、合并转发），支持按时间范围、按群、按个人筛选，生成可浏览的 HTML、Markdown、JSONL 和媒体文件包，并可做完整性校验。当用户说“导出微信聊天记录”“把某个群/某个人某段时间的聊天导出来”“备份微信群里的图片/文件/视频”“按时间整理微信记录”时使用。仅适用于用户本人设备上已登录的微信桌面客户端，不适用于手机端或他人设备。
+description: 导出本机微信桌面客户端的聊天记录（文字、图片、传输文件、视频、语音、表情、撤回、引用、合并转发），支持按时间范围、按群、按个人筛选，生成可浏览的 HTML、Markdown、JSONL 和媒体文件包，支持按会话增量追加、媒体去重、脱敏/加密/保留期，并可做完整性与增量校验。当用户说“导出微信聊天记录”“把某个群/某个人某段时间的聊天导出来”“备份微信群里的图片/文件/视频”“按时间整理微信记录”时使用。仅适用于用户本人设备上已登录的微信桌面客户端，不适用于手机端或他人设备。
 ---
 
 # 微信聊天记录导出（按群 / 按人 / 按时间）
@@ -19,8 +19,12 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 - 4.2 离线 key 缓存：`setup` 成功后保存 `<baseDir>/keys.json`；后续 `setup` 优先用缓存，不需要微信重新登录/运行。缓存失效会自动回退到进程提取；`clean` 默认保留，`--purge-keys` 删除。
 - 联系人/群成员/头像：`contacts --output <目录>`
 - 跨会话按人/全局时间线：`person --sender`、`timeline`；`--incremental` 使用 `state.json`
+- 按会话增量：普通 `--target/--group/--person` 加 `--incremental`，只追加新消息；媒体按 sha256 去重；`check-incremental` 复验状态/计数/媒体
 - 可选联网：`--fetch-articles`（仅 `mp.weixin.qq.com`）、`--download-stickers`（Tencent 白名单），默认关闭
-- 单文件解密：`decrypt-image <file> --output <path>`
+- 单文件解密：`decrypt-image <file> --output <path>`；V2 图片 + WXGF/H.265 图片
+- 小程序：appid/pagepath/username/icon 等字段进入 JSONL
+- 合并转发内层媒体：本机缓存优先；拿不到标记 `forward-media-not-local`
+- 安全：`--redact basic|strict`、`--encrypt`、`--retention-days`；`decrypt-output` / `retention-clean`
 
 ## 适用与边界
 
@@ -113,6 +117,14 @@ node scripts/wechat42-export.mjs contacts --output "D:\\exports\\contacts"
 node scripts/wechat42-export.mjs person --sender "张三" --output "D:\\exports\\person"
 node scripts/wechat42-export.mjs timeline --output "D:\\exports\\timeline"
 node scripts/wechat42-export.mjs timeline --output "D:\\exports\\timeline" --incremental
+
+# 脱敏 / 加密 / 保留期
+WECHAT_EXPORT_PASSWORD='***' node scripts/wechat42-export.mjs --target "项目群" \
+  --redact strict --encrypt --remove-plaintext --retention-days 7 \
+  --output "D:\\exports\\项目群"
+WECHAT_EXPORT_PASSWORD='***' node scripts/wechat42-export.mjs decrypt-output \
+  --input "D:\\exports\\项目群.wxenc" --output "D:\\exports\\项目群"
+node scripts/wechat42-export.mjs retention-clean --output "D:\\exports"
 
 # 可选联网：公众号正文 / 本机缺失表情
 node scripts/wechat42-export.mjs --target "群" --days 7 --types text,link --fetch-articles --output "D:\\exports\\群"

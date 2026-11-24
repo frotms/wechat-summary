@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 
 const ILLEGAL = /[\u0000-\u001f<>:"/\\|?*]/g
@@ -44,6 +45,25 @@ export async function pathExists(path) {
   } catch {
     return false
   }
+}
+
+/** SHA-256 of a file, used to deduplicate media across incremental runs. */
+export async function sha256File(path) {
+  const hash = createHash('sha256')
+  const handle = await fs.open(path, 'r')
+  try {
+    const buffer = Buffer.allocUnsafe(1024 * 1024)
+    let position = 0
+    for (;;) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+      if (!bytesRead) break
+      hash.update(buffer.subarray(0, bytesRead))
+      position += bytesRead
+    }
+  } finally {
+    await handle.close()
+  }
+  return hash.digest('hex')
 }
 
 export async function readJson(path) {

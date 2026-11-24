@@ -6,6 +6,7 @@ import {
   linkFromMessage,
   parseFileAppmsg,
   parseGroupSenderPrefix,
+  parseMiniProgramMeta,
   parseVideoMeta,
   resolveSender,
 } from '../scripts/lib/parse.mjs'
@@ -183,4 +184,24 @@ test('buildText produces readable labels', () => {
   assert.equal(buildText({ parsedContent: '你好' }, { type: 'text' }), '你好')
   assert.equal(buildText({ rawContent: `<msg><videomsg md5="${VIDEO_MD5}" playlength="12"/></msg>` }, { type: 'video' }), '[视频 12″]')
   assert.equal(buildText({}, { type: 'file', file: { title: 'a.pdf' } }), '[文件] a.pdf')
+})
+
+test('mini-program appmsg exposes weapp fields and is not a link', () => {
+  const raw = '<msg><appmsg><title>示例小程序</title><des>小程序描述</des><type>33</type>'
+    + '<url>https://mp.weixin.qq.com/s/example</url>'
+    + '<weappinfo><appid>wx123456</appid><pagepath>pages/index?id=1</pagepath>'
+    + '<username>gh_example</username><iconurl>https://example.com/icon.png</iconurl>'
+    + '<appname>示例应用</appname></weappinfo></appmsg></msg>'
+  const message = { localType: 49, messageType: 'miniprogram', rawContent: raw, parsedContent: '[小程序] 示例小程序' }
+  assert.equal(classifyMessage(message).type, 'miniprogram')
+  const meta = parseMiniProgramMeta(raw)
+  assert.equal(meta.title, '示例小程序')
+  assert.equal(meta.description, '小程序描述')
+  assert.equal(meta.appName, '示例应用')
+  assert.equal(meta.appId, 'wx123456')
+  assert.equal(meta.pagePath, 'pages/index?id=1')
+  assert.equal(meta.username, 'gh_example')
+  assert.equal(meta.iconUrl, 'https://example.com/icon.png')
+  assert.equal(meta.appType, '33')
+  assert.equal(buildText(message, { type: 'miniprogram' }), '[小程序] 示例小程序')
 })

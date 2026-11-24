@@ -37,6 +37,7 @@
 - 4.2 离线 key 缓存：`setup` 把逐库 raw key 保存到 `<baseDir>/keys.json`，后续可复用；`clean --purge-keys` 删除
 - 联系人 / 群成员 / 头像：`contacts --output <目录>` 生成 `contacts.json`、`groups.json`、`avatars/`
 - 跨会话按人 / 全局时间线：`person --sender "张三"`、`timeline`；`--incremental` 基于 `state.json` 追加
+- 按会话增量：普通 `--target/--group/--person` 加 `--incremental`，只追加新消息；媒体按 sha256 去重，`check-incremental` 可复验
 - 可选联网：`--fetch-articles`（仅 `mp.weixin.qq.com`）、`--download-stickers`（Tencent 白名单），默认关闭
 - `decrypt-image`：单个图片 `.dat`/V2 文件解密
 - 按时间（`--from/--to/--date/--days`）、按群、按个人
@@ -44,7 +45,10 @@
 - 微信 4.2（`wechat42-export.mjs`，默认原生，当前维护）
 - 微信 4.1（`wechat41-export.mjs`，代码保留但**暂不维护/未真机验证**；旧实现归档在 tag `archive-main-python-4.1-2026-11-18`）
   - **注意**：4.2 的“核心已 vendor”只指密钥提取/解密/消息解析不再依赖外部 `wechat-exporter` clone；4.2 默认原生后端，`--legacy-weflow` 才走 `weflow-cli`。
-- V2 加密视频自动解码
+- V2 加密视频自动解码；V2 加密图片解密；WXGF/H.265 图片转 JPEG
+- 小程序：title/描述/appid/pagepath/username/icon 等字段进入 JSONL
+- 合并转发内层媒体：优先从本机缓存定位图片/视频/文件；拿不到标记 `forward-media-not-local`
+- 导出安全：`--redact basic|strict` 脱敏；`--encrypt` 生成 AES-256-GCM 加密包；`--retention-days` 写保留期，`retention-clean` 清理到期目录
 - HTML / Markdown / JSONL / manifest / media 包
 - `doctor` / `compat.json` / `check-updates`
 
@@ -177,6 +181,21 @@ node scripts/wechat42-export.mjs timeline --output "D:\\wechat-exports\\timeline
 
 # 只追加新消息（同一 --output 重复运行）
 node scripts/wechat42-export.mjs timeline --output "D:\\wechat-exports\\timeline" --incremental
+
+# 普通会话增量；媒体按内容 hash 去重
+node scripts/wechat42-export.mjs --target "项目群" --incremental --output "D:\\wechat-exports\\项目群"
+node scripts/wechat42-export.mjs check-incremental --output "D:\\wechat-exports\\项目群"
+
+# 脱敏 + 加密 + 保留期（密码从环境变量读）
+WECHAT_EXPORT_PASSWORD='***' node scripts/wechat42-export.mjs --target "项目群" \
+  --redact strict --encrypt --remove-plaintext --retention-days 7 \
+  --output "D:\\wechat-exports\\项目群"
+
+# 解密 / 清理到期导出
+WECHAT_EXPORT_PASSWORD='***' node scripts/wechat42-export.mjs decrypt-output \
+  --input "D:\\wechat-exports\\项目群.wxenc" --output "D:\\wechat-exports\\项目群"
+node scripts/wechat42-export.mjs retention-clean --output "D:\\wechat-exports"
+node scripts/wechat42-export.mjs retention-clean --output "D:\\wechat-exports" --yes
 
 # 公众号正文 / 本机缺失表情（显式联网，默认关闭）
 node scripts/wechat42-export.mjs --target "群" --days 7 \
@@ -439,7 +458,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 npm test
 ```
 
-当前 63 项 Node 测试 + 59 项 Python 测试，覆盖：
+当前 81 项 Node 测试 + 61 项 Python 测试，覆盖：
 
 - 参数解析、日期窗口、类型映射
 - 文件 appmsg / 视频 md5 / 群发送者前缀 / 链接 fallback
@@ -450,7 +469,8 @@ npm test
 - 撤回记录：批量撤回匹配原消息、单条撤回孤立记录、HTML/Markdown 标记
 - 引用/合并转发：`refermsg` → `quote`、`recorditem` → `records`；HTML/Markdown 渲染
 - 转账/红包/位置/名片：金额、标题、经纬度、名片账号进入 JSONL；HTML/Markdown 结构化展示
-- 联系人/群成员/头像、跨会话 person/timeline、`--incremental` 状态追加
+- 联系人/群成员/头像、跨会话 person/timeline、按会话 `--incremental` 状态追加与媒体 hash 去重
+- 小程序字段、合并转发内层媒体、V2 图片/WXGF、脱敏、加密包、保留期清理
 - 公众号正文/表情 CDN 的域名白名单、文章正文提取、单文件 `decrypt-image`
 - 文本型导出跳过媒体/表情映射（不扫媒体、不扫 sticker seed）
 - 只读命令白名单、输出路径保护
@@ -481,6 +501,9 @@ scripts/
   wechat-contacts-export.py  # 联系人/群成员/头像导出
   wechat-decrypt-image.py    # 单文件图片 .dat/V2 解密
   wechat-person-export.py    # 跨会话按人/全局时间线/增量
+  wechat-incremental-check.mjs # 增量状态/计数/媒体去重校验
+  wechat-decrypt-output.mjs   # 解密 .wxenc 加密包
+  wechat-retention-clean.mjs  # 按 manifest.retention 清理到期导出
   check.mjs                  # 环境体检入口
   wechat42-export.mjs        # 微信 4.2 后端入口
   wechat41-export.mjs        # 微信 4.1 入口（默认原生；--legacy-weflow 回退）
