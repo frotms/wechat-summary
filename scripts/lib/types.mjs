@@ -12,14 +12,16 @@ export const MEDIA_TYPE_TOKENS = new Set([
   'emoji', '表情', 'sticker',
 ])
 
-// Types that make wechat-export call the native `export --media` path
-// (mediaRequested = image || file). In that path native-backend already
+// Types that make native `export --media` produce assets. native-backend
 // writes images/files/videos/posters/voice/stickers, so a separate
-// wechat42-media-map is redundant.
+// wechat42-media-map is redundant for these types.
 export const NATIVE_ASSET_TOKENS = new Set([
   'all', '*', '全部',
   'image', 'images', 'img', '图片', '照片',
   'file', 'files', '文件', '文档',
+  'video', 'videos', '视频',
+  'voice', 'audio', '语音',
+  'emoji', '表情', 'sticker',
 ])
 
 function typeTokens(value) {

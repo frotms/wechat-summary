@@ -59,6 +59,7 @@
 - `schema`: `wechat-export-audit/v1`
 - `totals`: 数据库/原始/导出/跳过/缺失媒体/重复/时间窗外
 - `targets[]`: 每个会话的 `source`、`export`、`checks`、`deep`、`complete`
+- `checks.boundaryTolerance`: `{used, tail, until}`；普通 audit 用导出边界扣除同秒尾部行
 - `deep`: `--deep` 时的 `missingIds` / `extraIds` / `exportedNotInRaw` / `typeMismatch`
   - `deep.boundary.source`: `raw-coverage` / `raw-max` / `generatedAt`
   - `deep.boundary.reliable`: 旧导出无 `coverage.boundary` 时为 false

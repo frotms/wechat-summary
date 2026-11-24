@@ -575,7 +575,7 @@ revokebatchmessage(local_id, batch_id, msg_unique_id, session_name,
 
 ## 10. 测试矩阵
 
-`npm test` 当前 81 项 Node 测试 + 61 项 Python 测试，全部通过。
+`npm test` 当前 81 项 Node 测试 + 62 项 Python 测试，全部通过。
 
 | 编号 | 测试 | 覆盖 |
 | --- | --- | --- |
@@ -641,11 +641,12 @@ revokebatchmessage(local_id, batch_id, msg_unique_id, session_name,
 
 1. **V2 视频/图片**：V2 视频由 `lib/v2_decode.py` 解码，video-only 导出现在也会走 native `--media`；V2 图片已用真实样本验证。普通 WXGF/H.265 图片走 vendor `prepare_wxam`，本机无真实 WXGF 样本。
 2. **4.1 语音**：4.2 已导出 WAV（`media/voice/` + `<audio>`）；4.1 走 `wechat41-export.mjs` 自动生成映射，代码路径已实现，但本机无 4.1 数据，真机验证待补。
-3. **宽范围媒体**：>31 天默认全量抽取，可能慢/占空间；可用 `--media-strategy day` 或收窄范围。
-4. **微信版本**：重点验证 Windows 微信 4.x；3.x、macOS、Linux 未验证。
-5. **会话列表上限**：`sessions` 最多取 1000 条；超出时用 `--target <id>` 直接指定。
-6. **公众号/系统账号**：默认不参与 `--all-persons`；需要时显式 `--target`、`--include-official`，或用 `--all-official` 批量导出。
-7. **同名会话**：必须用 ID；这是有意为之，避免导错人。
+3. **实时库一致性**：普通 `audit` 已用 `coverage.boundary` 并扣除同秒尾部行；旧导出无边界时仍可能误报。
+4. **宽范围媒体**：>31 天默认全量抽取，可能慢/占空间；可用 `--media-strategy day` 或收窄范围。
+5. **微信版本**：重点验证 Windows 微信 4.x；3.x、macOS、Linux 未验证。
+6. **会话列表上限**：`sessions` 最多取 1000 条；超出时用 `--target <id>` 直接指定。
+7. **公众号/系统账号**：默认不参与 `--all-persons`；需要时显式 `--target`、`--include-official`，或用 `--all-official` 批量导出。
+8. **同名会话**：必须用 ID；这是有意为之，避免导错人。
 
 ## 12. 后续可做
 

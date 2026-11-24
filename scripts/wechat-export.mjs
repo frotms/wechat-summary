@@ -1097,6 +1097,8 @@ async function runExport(opts) {
   const mediaRequested = types.has('image') || types.has('file')
     || Boolean(opts.fetchArticles) || Boolean(opts.downloadStickers)
   const videoRequested = types.has('video')
+  const voiceRequested = types.has('voice')
+  const emojiRequested = types.has('emoji')
   const warnings = []
   if (opts.incremental && opts.limit) {
     warnings.push('增量模式使用 --limit 可能漏掉尚未导出的消息；建议增量时不加 --limit')
@@ -1241,8 +1243,8 @@ async function runExport(opts) {
   const usedDirs = new Set()
   // Video-only (or voice/emoji-only) native exports still need `--media` so
   // V2 videos are decoded; otherwise the bundle only sees encrypted bytes.
-  const inlineMedia = videoRequested && !mediaEnabled && !mediaMap
-    && opts.mediaStrategy !== 'none'
+  const inlineMedia = !mediaEnabled && (videoRequested || voiceRequested || emojiRequested)
+    && !mediaMap && opts.mediaStrategy !== 'none'
   const existingManifest = opts.incremental ? await readTopManifest(outputDir) : null
   const previousBundles = Array.isArray(existingManifest?.bundles)
     ? existingManifest.bundles.filter((entry) => entry?.target?.id && entry?.dir)

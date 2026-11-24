@@ -121,6 +121,28 @@ def count_plain(work: Path, username: str, since, until):
     return total, by_type
 
 
+
+def count_boundary_tail(work: Path, username: str, boundary: dict):
+    """Rows at the boundary second with local_id greater than the export edge."""
+    table = table_name(username)
+    shard = table_shard_map(work).get(table)
+    ts = int(boundary.get("createTime") or 0)
+    local_id = int(boundary.get("localId") or 0)
+    if shard is None or not ts:
+        return 0
+    try:
+        conn = sqlite3.connect(f"file:{shard}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return 0
+    try:
+        return int(conn.execute(
+            f'select count(*) from "{table}" where create_time = ? and local_id > ?',
+            (ts, local_id)).fetchone()[0])
+    except sqlite3.Error:
+        return 0
+    finally:
+        conn.close()
+
 def count_encrypted(scripts_dir: Path, config_path: Path, username: str, since, until):
     """Count messages through weflow-cli's encrypted-DB helpers (4.1 path)."""
     sys.path.insert(0, str(scripts_dir))
@@ -447,20 +469,40 @@ def audit_bundle(bundle_dir: Path, bundle: dict, query: dict, mode: dict):
     target_id = target.get("id") or ""
     since, until = window_from_query(query)
 
+    raw, coverage, raw_file = raw_messages(bundle_dir, target_id)
+    boundary = coverage.get("boundary") if isinstance(coverage, dict) else None
+    boundary_tail = 0
+    effective_until = until
+    boundary_tolerance = {"used": False, "tail": 0, "until": None}
+    if (mode["kind"] == "work" and isinstance(boundary, dict)
+            and int(boundary.get("createTime") or 0) > 0
+            and boundary.get("reliable", True) is not False):
+        boundary_ts = int(boundary["createTime"])
+        if until is None or boundary_ts <= until:
+            effective_until = boundary_ts
+            boundary_tail = count_boundary_tail(
+                Path(mode["work_dir"]), target_id, boundary)
+            boundary_tolerance = {
+                "used": True,
+                "tail": boundary_tail,
+                "until": boundary_ts,
+            }
+
     db_count, db_by_type = None, {}
     error = ""
     try:
         if mode["kind"] == "work":
-            db_count, db_by_type = count_plain(Path(mode["work_dir"]), target_id, since, until)
+            db_count, db_by_type = count_plain(
+                Path(mode["work_dir"]), target_id, since, effective_until)
+            if boundary_tail:
+                db_count = max(0, (db_count or 0) - boundary_tail)
         elif mode["kind"] == "weflow":
             db_count, db_by_type = count_encrypted(
-                Path(mode["weflow_cli_dir"]), Path(mode["config"]), target_id, since, until)
+                Path(mode["weflow_cli_dir"]), Path(mode["config"]), target_id, since, effective_until)
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001
         error = str(exc)
-
-    raw, coverage, raw_file = raw_messages(bundle_dir, target_id)
     records = read_jsonl(bundle_dir / "messages.jsonl")
     if records is None:
         records = []
@@ -516,6 +558,7 @@ def audit_bundle(bundle_dir: Path, bundle: dict, query: dict, mode: dict):
         "brokenMedia": broken_media[:50],
         "brokenMediaCount": len(broken_media),
         "coverageMayHaveMore": coverage.get("mayHaveMore") is True,
+        "boundaryTolerance": boundary_tolerance,
     }
     if deep is not None:
         checks["sourceIdsMatchRaw"] = bool(

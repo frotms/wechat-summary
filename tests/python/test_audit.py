@@ -222,6 +222,29 @@ class AuditTest(unittest.TestCase):
             self.assertEqual(deep["missingCount"], 1)
             self.assertEqual(deep["missingIds"], ["2:s2"])
 
+    def test_audit_uses_boundary_tolerance_for_same_second_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = "123@chatroom"
+            rows = [
+                (1, "s1", 1, DAY + 10),
+                (2, "s2", 1, DAY + 10),  # arrived after the export edge
+                (3, "s3", 1, DAY + 20),
+            ]
+            raw_rows = rows[:1]
+            exported = [{"id": "1:%d" % (DAY + 10), "localId": 1, "serverId": "s1",
+                         "type": "text", "timestamp": DAY + 10, "media": {}}]
+            output, bundle_dir, query, target_obj = self.make_export(
+                root, target, rows, exported, skipped=0,
+                raw_rows=raw_rows, boundary=(DAY + 10, 1))
+            result = audit.audit_bundle(
+                bundle_dir, {"target": target_obj, "stats": {"skippedByType": 0}},
+                query, {"kind": "work", "work_dir": str(root / "work")})
+            self.assertTrue(result["complete"], result)
+            self.assertEqual(result["source"]["dbMessages"], 1)
+            self.assertTrue(result["checks"]["boundaryTolerance"]["used"])
+            self.assertEqual(result["checks"]["boundaryTolerance"]["tail"], 1)
+
     def test_deep_respects_export_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -45,7 +45,7 @@
 | 4.1 后端 | ⏸ 暂缓 | 代码保留，但暂不维护/未真机验证；旧实现归档在 tag `archive-main-python-4.1-2026-11-18` |
 | 脱离 `weflow-cli` | ✅ 4.2 原生 | 4.2 默认 `native-backend.py` + `native-weflow.mjs`；4.1 代码保留但不维护；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
-| 测试 | ✅ | 81 项 Node + 61 项 Python |
+| 测试 | ✅ | 81 项 Node + 62 项 Python |
 
 ### 本机验证基线（微信 4.2.0.13）
 
@@ -78,7 +78,7 @@
 1. **普通单条撤回**：本地通常只剩 `sysmsg type="revokemsg"` 提示，没有 `newmsgid`，原内容一般拿不到；`revokemessage` 表本机 0 行，未验证。
 2. **批量撤回**：依赖原消息行仍在；原行被删除则无法恢复。
 3. **`weflow-cli` 依赖**：4.2 默认走原生后端，不再需要 `weflow-cli`；只有 `--legacy-weflow` 回退时才用。4.1 代码保留但暂不维护。
-3. **实时库一致性**：普通计数 `audit` 在导出后重新查库，时间范围含今天时可能误报；`audit --deep` 优先用 `coverage.boundary` 钉住导出时刻，旧导出退回兜底边界并标 `reliable: false`。
+3. **实时库一致性**：普通计数 `audit` 现在优先用 `coverage.boundary`，并扣除同秒内晚于导出边界的尾部行；旧导出没有边界时仍可能误报。`audit --deep` 继续按 ID 逐条对账。
 4. **4.1 暂缓**：用户 2026-11-20 确认先不管 4.1；相关代码、合成测试保留，但不维护/不验收。旧实现见 tag `archive-main-python-4.1-2026-11-18`。
 5. **V2/HEVC 图片**：V2 图片解密已用真实样本验证；WXGF/H.265 走 vendor `prepare_wxam`，本机 176592 个图片缓存无 WXGF 样本，未做真实 canary。
 6. **真实 V2 视频**：本机 1370 个视频全是普通 MP4，V2 只有合成测试。
@@ -96,9 +96,9 @@
 
 ### P0：结果可信度
 
-- [ ] 实时库一致性：普通计数 audit 仍需边界容差；`audit --deep` 已用 `coverage.boundary` 钉住导出时刻。
+- [x] 实时库一致性：普通计数 audit 也用 `coverage.boundary` 并扣除同秒尾部行；`audit --deep` 继续逐条对账。
 - [ ] 单条撤回 `revokemessage` 实样：确认 `content` 是否为原文、`svr_id` 格式、`revoke_time` 单位。
-- [ ] 大会话性能：减少媒体映射逐目标全表扫描；评估直读媒体。
+- [x] 大会话性能：native 全媒体类型统一走 `--media`，默认不再生成 media-map；仅 legacy/`--with-media-map` 保留。
 
 ### P1：覆盖范围
 
@@ -132,7 +132,7 @@
 
 ```bash
 npm test                  # 81 项 Node 测试
-npm run test:py           # 61 项 Python 测试
+npm run test:py           # 62 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor
 node scripts/wechat42-export.mjs audit --output "<导出目录>" --deep

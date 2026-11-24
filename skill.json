@@ -22,7 +22,7 @@
         "补 4.2 native 媒体：video-only 走 --media 解码 V2；WXGF/H.265 转 JPEG；合并转发内层媒体本机缓存优先",
         "小程序 appid/pagepath/username/icon 等字段；HTML/Markdown 卡片",
         "新增 --redact basic|strict、--encrypt AES-256-GCM 加密包、--retention-days + retention-clean",
-        "测试增至 81 项 Node + 61 项 Python"
+        "测试增至 81 项 Node + 62 项 Python"
       ]
     },
     {

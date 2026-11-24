@@ -458,7 +458,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 npm test
 ```
 
-当前 81 项 Node 测试 + 61 项 Python 测试，覆盖：
+当前 81 项 Node 测试 + 62 项 Python 测试，覆盖：
 
 - 参数解析、日期窗口、类型映射
 - 文件 appmsg / 视频 md5 / 群发送者前缀 / 链接 fallback
