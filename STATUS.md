@@ -114,7 +114,7 @@
 - [x] **Level 2（4.2）**：`native-backend.py` + `native-weflow.mjs`，4.2 导出不再调用 `weflow-cli`；`--legacy-weflow` 保留对照。
 - [x] **Level 2（4.1）**：`wechat41-decrypt.py` + `lib/v41db.py`，SQLCipher → `work/` → native backend；合成 SQLCipher 测试通过，真机待验证。
 - [x] **native-only setup**：4.2 `setup` 默认只生成 `work/`，`--with-sandbox` 才生成 sandbox。
-- [ ] 推送并跑 GitHub Actions。
+- [x] 推送并跑 GitHub Actions（2026-11-24：Node 81 / Python 62 通过；时区测试已修）。
 - [ ] 依赖清单与一键安装；4.1 版 `doctor` 暂缓。
 - [ ] 跨平台验证（macOS/Linux、微信 3.x）。
 - [x] 导出物脱敏/加密/保留期：`--redact`、`--encrypt`、`--retention-days`；`decrypt-output`/`retention-clean`。
