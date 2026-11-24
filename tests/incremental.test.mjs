@@ -12,6 +12,17 @@ const repoRoot = dirname(here)
 const mainScript = join(repoRoot, 'scripts', 'wechat-export.mjs')
 const fakeWeFlow = join(repoRoot, 'tests', 'fixtures', 'fake-weflow.mjs')
 
+function ts(day, hour, minute) {
+  return Math.floor(new Date(2026, 0, day, hour, minute, 0).getTime() / 1000)
+}
+const T1 = ts(5, 10, 0)
+const T2 = ts(5, 10, 1)
+const T3 = ts(5, 10, 2)
+const T4 = ts(5, 10, 3)
+const T5 = ts(6, 9, 0)
+const T6 = ts(6, 9, 1)
+const T7 = ts(6, 9, 2)
+
 function run(ws, args) {
   const res = spawnSync(process.execPath, [mainScript, ...args], {
     encoding: 'utf8',
@@ -80,13 +91,8 @@ test('incremental export appends new messages and deduplicates media', async () 
     const records = readJsonl(join(bundleDir, 'messages.jsonl'))
     assert.equal(records.length, 7)
     assert.deepEqual(records.map((record) => record.id), [
-      '1:1767578400',
-      '2:1767578460',
-      '3:1767578520',
-      '4:1767578580',
-      '5:1767661200',
-      '6:1767661260',
-      '7:1767661320',
+      `1:${T1}`, `2:${T2}`, `3:${T3}`, `4:${T4}`,
+      `5:${T5}`, `6:${T6}`, `7:${T7}`,
     ])
     assert.equal(new Set(records.map((record) => record.id)).size, 7)
 
@@ -99,8 +105,8 @@ test('incremental export appends new messages and deduplicates media', async () 
     assert.equal(report.check.ok, true)
 
     const state = JSON.parse(readFileSync(join(bundleDir, 'state.json'), 'utf8'))
-    assert.equal(state.lastTimestamp, 1767661320)
-    assert.equal(state.lastMessageId, '7:1767661320')
+    assert.equal(state.lastTimestamp, T7)
+    assert.equal(state.lastMessageId, `7:${T7}`)
     assert.equal(state.messageCount, 7)
 
     // Media is deduplicated by sha256, not appended under _2 names.
