@@ -84,7 +84,7 @@
 6. **真实 V2 视频**：本机 1370 个视频全是普通 MP4，V2 只有合成测试。
 7. **非文本消息结构化**：小程序已展开 title/des/appid/pagepath/username/icon；视频号、部分应用消息仍未展开；转账/红包/位置/名片已结构化（领取/退款等状态字段未解析）。
 8. **公众号**：本机无 `gh_` 会话，`--all-official` 只有假 CLI 测试。
-9. **大会话性能**：native 在 types 含 image/file 时跳过 media-map；video/voice/emoji-only 或 `--with-media-map` 仍会扫描。
+9. **大会话性能**：native 全媒体类型统一走 `--media`，默认不生成 media-map；仅 legacy / `--with-media-map` 才扫描。
 10. **跨平台**：只在 Windows 10/11 + 微信 4.x 验证；macOS/Linux、微信 3.x 未验证。
 11. **输出安全**：默认仍是明文目录；`--redact` 做基础脱敏、`--encrypt` 生成 AES-256-GCM 加密包、`--retention-days` 写保留期。加密密码只从 `WECHAT_EXPORT_PASSWORD` 读取。
 12. **依赖安装**：已提供 `requirements.txt`；仍需用户自己创建 venv 并安装（当前不做一键安装器/安装向导）。
