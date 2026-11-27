@@ -1,17 +1,17 @@
 {
   "name": "wechat-export",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "category": "other/wechat",
   "source": "自建",
   "status": "draft",
   "author": "chenxi liu",
   "license": "MIT",
   "createdAt": "2026-11-16",
-  "updatedAt": "2026-11-24",
+  "updatedAt": "2026-11-27",
   "changelog": [
     {
-      "version": "1.13.0",
-      "date": "2026-11-24",
+      "version": "1.14.0",
+      "date": "2026-11-27",
       "author": "chenxi liu",
       "changes": [
         "新增 contacts 命令：导出联系人 contacts.json、群成员 groups.json、头像 avatars/",
@@ -22,7 +22,8 @@
         "补 4.2 native 媒体：video-only 走 --media 解码 V2；WXGF/H.265 转 JPEG；合并转发内层媒体本机缓存优先",
         "小程序 appid/pagepath/username/icon 等字段；HTML/Markdown 卡片",
         "新增 --redact basic|strict、--encrypt AES-256-GCM 加密包、--retention-days + retention-clean",
-        "测试增至 81 项 Node + 62 项 Python"
+        "默认自动检查源库/DB-WAL/key 指纹并刷新 work/；--no-refresh 跳过，--refresh 强制",
+        "测试增至 82 项 Node + 62 项 Python"
       ]
     },
     {

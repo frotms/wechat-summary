@@ -27,6 +27,7 @@ import { nowStamp } from './lib/time.mjs'
 import { isPathInside } from './lib/config.mjs'
 import { parseArgv } from './lib/args.mjs'
 import { typesNeedMedia, typesNeedNativeAssets } from './lib/types.mjs'
+import { sourceFingerprintSync, workIsFreshSync, writeStampSync } from './lib/freshness.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MAIN = join(HERE, 'wechat-export.mjs')
@@ -76,13 +77,14 @@ setup:
   --account-root <目录>    微信账号目录（含 db_storage 与 msg）
   --base-dir <目录>        4.2 工作根目录（默认 ~/.wechat-export/wechat42，或已有配置）
   --venv-python <路径>     可选；默认 ~/.weflow-cli/venv/Scripts/python.exe
-  --refresh                重建 sandbox
+  --refresh                强制重建 work/（以及 sandbox）
   --native-only            只解密到 work/，不重建 sandbox（默认）
   --with-sandbox           同时生成 sandbox（--legacy-weflow 用）
 
 export:
   所有参数原样传给 scripts/wechat-export.mjs；额外支持：
-  --refresh                先重建 sandbox
+  --refresh                强制重建 work/（以及 sandbox）
+  --no-refresh             跳过自动检查，直接读已有 work/（最快）
   --no-media-map           不生成视频/图片补全映射（只依赖 weflow manifest）
   --with-media-map         强制生成 media-map（native 默认会跳过冗余映射）
   --no-sticker-map         不生成表情包映射（表情只保留文字标签）
@@ -168,6 +170,7 @@ function parseFlags(args) {
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i]
     if (token === '--refresh') { values.refresh = true; continue }
+    if (token === '--no-refresh') { values.noRefresh = true; continue }
     if (token === '--native-only') { values.nativeOnly = true; continue }
     if (token === '--with-sandbox') { values.withSandbox = true; continue }
     if (token === '--no-media-map') { values.noMediaMap = true; continue }
@@ -287,8 +290,32 @@ function runSetup(values, options = {}) {
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
     stdoutToStderr: Boolean(options.stderr),
   })
+  try {
+    writeStampSync(baseDir, {
+      accountRoot,
+      workDir,
+      fingerprint: sourceFingerprintSync(accountRoot, join(baseDir, 'keys.json')),
+    })
+  } catch {
+    // A missing stamp only means the next command refreshes once more.
+  }
   out(nativeOnly ? '✓ work/ 就绪（native-only，未生成 sandbox）' : '✓ sandbox 就绪')
   out(`下一步: node scripts/wechat42-export.mjs --target "群名/人名" --days 7`)
+}
+
+function ensureWorkFresh(config, values = {}) {
+  if (values.noRefresh) return false
+  if (!existsSync(config.workDir)) {
+    console.error('work/ 不存在，重建/解密到最新...')
+    runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
+      { stderr: true, nativeOnly: true })
+    return true
+  }
+  if (workIsFreshSync(config)) return false
+  console.error('检测到微信源库有更新，自动重建 work/ ...')
+  runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
+    { stderr: true, nativeOnly: true })
+  return true
 }
 
 /**
@@ -537,6 +564,9 @@ function runExport(values, args) {
     runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
       { stderr: true, nativeOnly: nativeDefault })
   }
+  if (!dryRun && nativeDefault && !values.refresh && !values.noRefresh) {
+    ensureWorkFresh(config, values)
+  }
 
   const realHome = process.env.USERPROFILE || homedir()
   const hasOutput = args.includes('--output') || args.includes('-o')
@@ -673,6 +703,7 @@ function outputDirFromArgs(args) {
 function runAudit(args) {
   const config = readConfig()
   if (!config) fail('还没有配置 4.2 后端；先运行 setup', 3)
+  const values = {}
   let output = ''
   let workDir = config.workDir
   let json = false
@@ -683,6 +714,8 @@ function runAudit(args) {
     if (token.startsWith('--output=')) { output = token.slice('--output='.length); continue }
     if (token === '--work-dir') { workDir = args[++i] || ''; continue }
     if (token === '--deep') { deep = true; continue }
+    if (token === '--refresh') { values.refresh = true; continue }
+    if (token === '--no-refresh') { values.noRefresh = true; continue }
     if (token === '--json') { json = true; continue }
     fail(`未知的 audit 参数: ${token}`)
   }
@@ -699,6 +732,7 @@ function runAudit(args) {
   } catch {
     // Fall through to the normal audit error path.
   }
+  if (workDir === config.workDir) ensureWorkFresh(config, values)
   if (!workDir || !existsSync(workDir)) {
     fail('明文 work/ 不存在；先运行 setup（或一次普通导出会重建）', 3)
   }
@@ -715,6 +749,8 @@ function parseSearchFlags(args) {
   const takesValue = new Set(['--query', '--from', '--to', '--out', '--max-sessions', '--max-matches'])
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i]
+    if (token === '--refresh') { values.refresh = true; continue }
+    if (token === '--no-refresh') { values.noRefresh = true; continue }
     if (takesValue.has(token)) {
       values[token.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = args[++i]
       continue
@@ -727,11 +763,7 @@ function parseSearchFlags(args) {
 function runSearch(values) {
   const config = readConfig()
   if (!config) fail('还没有配置 4.2 后端；先运行 setup', 3)
-  if (!existsSync(config.workDir)) {
-    console.error('明文 work/ 已清理，重建 work/ 以支持搜索...')
-    runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
-      { stderr: true, nativeOnly: true })
-  }
+  ensureWorkFresh(config, values)
   const query = values.query
   if (!query) fail('search 需要 --query <关键词>')
   const out = values.out || join(config.baseDir, `search_${query}_${nowStamp()}.json`)
@@ -872,6 +904,7 @@ function runDoctor() {
 function runAggregate(command, args) {
   const config = readConfig()
   if (!config) fail('还没有配置 4.2 后端；先运行 setup', 3)
+  const values = {}
   let output = ''
   let sender = ''
   let since = ''
@@ -892,12 +925,15 @@ function runAggregate(command, args) {
     if (token === '--max-sessions') { maxSessions = args[++i] || ''; continue }
     if (token === '--max-messages') { maxMessages = args[++i] || ''; continue }
     if (token === '--incremental') { incremental = true; continue }
+    if (token === '--refresh') { values.refresh = true; continue }
+    if (token === '--no-refresh') { values.noRefresh = true; continue }
     if (token === '--json') { json = true; continue }
     fail(`未知的 ${command} 参数: ${token}`)
   }
   if (!output) fail(`${command} 需要 --output <目录>`)
   if (command === 'person' && !sender) fail('person 需要 --sender <名称/wxid>')
   let workDir = config.workDir
+  ensureWorkFresh(config, values)
   if (!workDir || !existsSync(workDir)) {
     console.error('明文 work/ 不存在，重建 work/ ...')
     runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },
@@ -959,6 +995,7 @@ function runDecryptImage(args) {
 function runContacts(args) {
   const config = readConfig()
   if (!config) fail('还没有配置 4.2 后端；先运行 setup', 3)
+  const values = {}
   let output = ''
   let workDir = config.workDir
   let noAvatars = false
@@ -968,11 +1005,14 @@ function runContacts(args) {
     if (token === '--output' || token === '-o') { output = args[++i] || ''; continue }
     if (token.startsWith('--output=')) { output = token.slice('--output='.length); continue }
     if (token === '--work-dir') { workDir = args[++i] || ''; continue }
+    if (token === '--refresh') { values.refresh = true; continue }
+    if (token === '--no-refresh') { values.noRefresh = true; continue }
     if (token === '--no-avatars') { noAvatars = true; continue }
     if (token === '--json') { json = true; continue }
     fail(`未知的 contacts 参数: ${token}`)
   }
   if (!output) fail('contacts 需要 --output <导出目录>')
+  if (workDir === config.workDir) ensureWorkFresh(config, values)
   if (!workDir || !existsSync(workDir)) {
     console.error('明文 work/ 不存在，重建 work/ ...')
     runSetup({ toolDir: config.toolDir, accountRoot: config.accountRoot, baseDir: config.baseDir },

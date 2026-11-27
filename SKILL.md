@@ -17,6 +17,7 @@ description: 导出本机微信桌面客户端的聊天记录（文字、图片�
 - 内容还原：引用消息（`quote`，HTML 引用块）、合并转发/笔记（`records`，HTML 展开列表）
 - 特殊消息：转账金额、红包、位置经纬度、名片账号进入 JSONL；HTML/Markdown 结构化展示
 - 4.2 离线 key 缓存：`setup` 成功后保存 `<baseDir>/keys.json`；后续 `setup` 优先用缓存，不需要微信重新登录/运行。缓存失效会自动回退到进程提取；`clean` 默认保留，`--purge-keys` 删除。
+- 默认自动刷新：导出/搜索/列表/联系人/person/timeline/audit 会检查源库+WAL+key 指纹；变化时自动重建 `work/`，`--no-refresh` 跳过，`--refresh` 强制。
 - 联系人/群成员/头像：`contacts --output <目录>`
 - 跨会话按人/全局时间线：`person --sender`、`timeline`；`--incremental` 使用 `state.json`
 - 按会话增量：普通 `--target/--group/--person` 加 `--incremental`，只追加新消息；媒体按 sha256 去重；`check-incremental` 复验状态/计数/媒体
@@ -102,6 +103,10 @@ node scripts/wechat42-export.mjs setup \
 ```bash
 # 单个群最近 7 天（自动生成媒体映射）
 node scripts/wechat42-export.mjs --group "项目群" --days 7
+
+# 默认自动刷新 work/；强制/跳过
+node scripts/wechat42-export.mjs --refresh --target "项目群" --days 1
+node scripts/wechat42-export.mjs --no-refresh --target "项目群" --days 1
 
 # 单日文字+图片+文件+视频+语音
 node scripts/wechat42-export.mjs --target "50055365721@chatroom" --date 2026-11-03 \

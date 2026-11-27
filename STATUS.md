@@ -1,6 +1,6 @@
 # 当前状态与待办
 
-> 版本：1.13.0（2026-11-24）
+> 版本：1.14.0（2026-11-27）
 > 分支：仅 `main`（feat 已于 2026-11-20 收口并删除；旧 main 见 tag `archive-main-python-4.1-2026-11-18`）
 > 验证环境：Windows 10 + 微信桌面版 4.2.0.13
 > 详细设计见 `DESIGN.md`；按优先级排列的待办见 `TODO.md`；已记录但暂不实现的需求见 `BACKLOG.md`。
@@ -45,7 +45,7 @@
 | 4.1 后端 | ⏸ 暂缓 | 代码保留，但暂不维护/未真机验证；旧实现归档在 tag `archive-main-python-4.1-2026-11-18` |
 | 脱离 `weflow-cli` | ✅ 4.2 原生 | 4.2 默认 `native-backend.py` + `native-weflow.mjs`；4.1 代码保留但不维护；`--legacy-weflow` 保留回退 |
 | 环境体检 | ✅ | `--check`、`wechat42-export.mjs doctor` |
-| 测试 | ✅ | 81 项 Node + 62 项 Python |
+| 测试 | ✅ | 82 项 Node + 62 项 Python |
 
 ### 本机验证基线（微信 4.2.0.13）
 
@@ -72,6 +72,7 @@
 - 2026-11-23：person/timeline canary：person 38 条（50 会话）；timeline 200 条；`--incremental` 保留已有行并只追加新消息
 - 2026-11-24：按会话增量 canary：国数SE9供货沟通 首次 4 条，第二次新增 35、重复 4、总计 39；`check-incremental` 0 失败
 - 2026-11-24：真实 V2 图片 canary：`631878c3...dat` → PNG 11451 bytes；本机 1370 个视频无 V2，176592 个图片缓存无 WXGF 样本
+- 2026-11-27：默认自动刷新 canary：CCC 群 `--refresh` 读到 11/27 10:49:55 撤回系统提示；`--no-refresh` 复用旧 work，不触发重建
 
 ## 二、已知限制
 
@@ -131,7 +132,7 @@
 ## 四、如何自检
 
 ```bash
-npm test                  # 81 项 Node 测试
+npm test                  # 82 项 Node 测试
 npm run test:py           # 62 项 Python 测试
 
 node scripts/wechat42-export.mjs doctor

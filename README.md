@@ -35,6 +35,7 @@
 - 合并转发：展开内层文字/文件名/发送者/时间（HTML `<details>`、Markdown 引用块）
 - 转账/红包/位置/名片：结构化金额、标题、经纬度、名片账号；HTML 卡片/地图链接、Markdown 链接
 - 4.2 离线 key 缓存：`setup` 把逐库 raw key 保存到 `<baseDir>/keys.json`，后续可复用；`clean --purge-keys` 删除
+- 默认自动新鲜度检查：源库/DB-WAL/key 变化时自动重建 `work/`；`--no-refresh` 可跳过，`--refresh` 强制
 - 联系人 / 群成员 / 头像：`contacts --output <目录>` 生成 `contacts.json`、`groups.json`、`avatars/`
 - 跨会话按人 / 全局时间线：`person --sender "张三"`、`timeline`；`--incremental` 基于 `state.json` 追加
 - 按会话增量：普通 `--target/--group/--person` 加 `--incremental`，只追加新消息；媒体按 sha256 去重，`check-incremental` 可复验
@@ -185,6 +186,10 @@ node scripts/wechat42-export.mjs timeline --output "D:\\wechat-exports\\timeline
 # 普通会话增量；媒体按内容 hash 去重
 node scripts/wechat42-export.mjs --target "项目群" --incremental --output "D:\\wechat-exports\\项目群"
 node scripts/wechat42-export.mjs check-incremental --output "D:\\wechat-exports\\项目群"
+
+# 默认会自动检查源库是否更新；强制/跳过分别用：
+node scripts/wechat42-export.mjs --refresh --target "项目群" --days 1
+node scripts/wechat42-export.mjs --no-refresh --target "项目群" --days 1
 
 # 脱敏 + 加密 + 保留期（密码从环境变量读）
 WECHAT_EXPORT_PASSWORD='***' node scripts/wechat42-export.mjs --target "项目群" \
@@ -458,7 +463,7 @@ node scripts/wechat41-export.mjs audit --output "<导出目录>" --deep
 npm test
 ```
 
-当前 81 项 Node 测试 + 62 项 Python 测试，覆盖：
+当前 82 项 Node 测试 + 62 项 Python 测试，覆盖：
 
 - 参数解析、日期窗口、类型映射
 - 文件 appmsg / 视频 md5 / 群发送者前缀 / 链接 fallback
@@ -502,6 +507,7 @@ scripts/
   wechat-decrypt-image.py    # 单文件图片 .dat/V2 解密
   wechat-person-export.py    # 跨会话按人/全局时间线/增量
   wechat-incremental-check.mjs # 增量状态/计数/媒体去重校验
+  lib/freshness.mjs            # 源库/DB-WAL/key 新鲜度指纹
   wechat-decrypt-output.mjs   # 解密 .wxenc 加密包
   wechat-retention-clean.mjs  # 按 manifest.retention 清理到期导出
   check.mjs                  # 环境体检入口
